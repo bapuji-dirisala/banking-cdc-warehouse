@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+pip-log.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDE / editors
+.idea/
+.vscode/
+.cursor/
+*.swp
+*~
+
+# Learning / experimentation scratch space — never committed
+scratch/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data — never commit local datasets, warehouse state, or dbt build artefacts
+data/
+warehouse/
+*.parquet
+*.duckdb
+!tests/**/*.parquet
+!tests/**/*.csv
+
+# dbt runtime state
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+dbt/.user.yml
+
+# Snowflake / connector configs — never commit
+profiles.yml
+.snowsql/
+.snowflake/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Airflow — runtime state, keep the dag source and Dockerfile
+airflow/logs/
+airflow/plugins/
+!airflow/plugins/.gitkeep
+
+# Debezium / Kafka Connect local state
+connect-offsets/
+connect-status/
+connect-configs/
