@@ -37,6 +37,15 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3.7",
 ]
+# Phase 1 — Postgres OLTP source + synthetic transaction generator.
+postgres = [
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "faker>=27.0",
+]
+
+[project.scripts]
+banking-cdc = "banking_cdc.cli:main"
 
 [project.urls]
 Repository = "https://github.com/bapuji-dirisala/banking-cdc-warehouse"

@@ -1,0 +1,40 @@
+# Local Postgres 16 OLTP source for the CDC warehouse.
+#
+# Configured with logical decoding enabled so Phase 2 (Debezium) can attach
+# without any further Postgres changes. Data lives in a named volume so
+# `docker compose down` preserves rows; `docker compose down -v` wipes them
+# and re-runs the init scripts on the next `up`.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: banking-oltp
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: banking
+      POSTGRES_PASSWORD: banking
+      POSTGRES_DB: banking_oltp
+    ports:
+      - "5432:5432"
+    volumes:
+      - banking_oltp_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_wal_senders=8"
+      - "-c"
+      - "max_replication_slots=8"
+      - "-c"
+      - "shared_preload_libraries=pgoutput"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banking -d banking_oltp"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  banking_oltp_data:
+    name: banking_oltp_data

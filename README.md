@@ -11,7 +11,8 @@ changes to Kafka; a Snowflake sink lands raw CDC into a bronze schema;
 dbt promotes bronze → staging → intermediate → marts, with SCD2 snapshots
 on the slowly-changing dimensions and audit history preserved end-to-end.
 
-> **Status:** Phase 0 — repo scaffolding, tooling, CI. Eleven-phase
+> **Status:** Phase 1 — Postgres OLTP source with logical WAL + a
+> deterministic synthetic transaction generator is live. Eleven-phase
 > roadmap below; every phase gets a dedicated design doc under
 > [`docs/`](docs/).
 
@@ -92,7 +93,7 @@ Detailed component topology, ADRs, and design principles land in
 | Phase | Focus | Status | Notes |
 |-------|-------|--------|-------|
 | 0 | Repo scaffolding, tooling, CI | ✅ done | [docs/phase-00-scaffolding.md](docs/phase-00-scaffolding.md) |
-| 1 | Postgres OLTP schema + synthetic transaction generator | ⏳ planned | |
+| 1 | Postgres OLTP schema + synthetic transaction generator | ✅ done | [docs/phase-01-postgres-oltp.md](docs/phase-01-postgres-oltp.md) |
 | 2 | Debezium + Kafka (CDC capture, docker-compose) | ⏳ planned | |
 | 3 | Bronze CDC landing — raw change events into Snowflake | ⏳ planned | |
 | 4 | dbt sources + staging models | ⏳ planned | |
@@ -131,7 +132,24 @@ pre-commit install
 pytest                            # fast, hermetic (integration + warehouse skipped)
 ```
 
-Later phases add compose stacks, dbt runners, and Airflow DAGs — see the
+### Phase 1 quickstart — run the OLTP locally
+
+```bash
+# Install the postgres extra (SQLAlchemy, psycopg, Faker) + the CLI entrypoint.
+pip install -e ".[dev,postgres]"
+
+# Bring up Postgres 16 with wal_level=logical (init scripts apply the schema).
+docker compose -f compose/docker-compose.yml up -d
+
+# Seed a deterministic batch — 200 customers, 60 seconds of activity at ~20 TPS.
+banking-cdc seed run --customers 200 --duration 60 --tps 20 --seed 42
+
+# Peek at what landed.
+docker compose -f compose/docker-compose.yml exec postgres \
+    psql -U banking -d banking_oltp -c "SELECT count(*) FROM transactions;"
+```
+
+Later phases add Debezium, Kafka, Snowflake, dbt, and Airflow — see the
 per-phase docs in [`docs/`](docs/) as they land.
 
 ## Two operating modes
