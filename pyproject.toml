@@ -43,6 +43,13 @@ postgres = [
     "psycopg[binary]>=3.2",
     "faker>=27.0",
 ]
+# Phase 2 — Kafka Connect REST client for the ``banking-cdc kafka ...`` CLI
+# and the CDC smoke test. Deliberately lightweight: just ``requests``.
+# A full Kafka client (kafka-python / confluent-kafka) is out of scope for
+# Phase 2 — the smoke test proves CDC via Connect's REST topics endpoint.
+kafka = [
+    "requests>=2.31",
+]
 
 [project.scripts]
 banking-cdc = "banking_cdc.cli:main"
@@ -57,11 +64,12 @@ packages = ["src/banking_cdc"]
 minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
-# Deselect infra-dependent tests by default. Opt in with
-# ``pytest -m integration`` once Postgres / Kafka / Snowflake fixtures exist.
-addopts = "-v --strict-markers -m 'not integration and not warehouse'"
+# Deselect infra-dependent tests by default. Opt in per marker once the
+# relevant fixtures are up (compose stack / Snowflake trial / etc.).
+addopts = "-v --strict-markers -m 'not integration and not cdc and not warehouse'"
 markers = [
-    "integration: hits a real broker, database, or CDC connector",
+    "integration: requires the Phase 1 Postgres container running",
+    "cdc: requires the full Phase 2 stack (Postgres + Kafka + Connect) running and the Debezium connector registered",
     "warehouse: hits a real Snowflake / BigQuery warehouse",
 ]
 

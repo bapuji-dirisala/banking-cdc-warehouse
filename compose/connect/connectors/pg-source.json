@@ -1,0 +1,30 @@
+{
+  "name": "banking-postgres-source",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+
+    "plugin.name": "pgoutput",
+    "publication.name": "banking_publication",
+    "slot.name": "banking_slot",
+
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "banking",
+    "database.password": "banking",
+    "database.dbname": "banking_oltp",
+
+    "topic.prefix": "banking",
+    "table.include.list": "public.customers,public.accounts,public.transactions,public.card_events",
+
+    "snapshot.mode": "initial",
+    "heartbeat.interval.ms": "30000",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+
+    "producer.override.compression.type": "snappy"
+  }
+}

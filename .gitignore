@@ -78,3 +78,8 @@ airflow/plugins/
 connect-offsets/
 connect-status/
 connect-configs/
+
+# Kafka Connect plugin jars — fetched by scripts/fetch-debezium.sh on
+# first run; keep the directory structure (.gitkeep) but not the binaries.
+compose/connect/plugins/*/
+!compose/connect/plugins/.gitkeep

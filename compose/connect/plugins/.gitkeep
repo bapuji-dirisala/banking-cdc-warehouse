@@ -1,0 +1,3 @@
+# Kafka Connect plugin directory — bind-mounted into the connect container
+# at /plugins. Populated by scripts/fetch-debezium.sh on first run.
+# The actual plugin jars are gitignored (see .gitignore).

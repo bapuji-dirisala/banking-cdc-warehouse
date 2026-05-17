@@ -12,27 +12,46 @@ dbt promotes bronze → staging → intermediate → marts, with SCD2 snapshots
 on the slowly-changing dimensions and audit history preserved end-to-end.
 
 > **Status:** Phase 1 — Postgres OLTP source with logical WAL + a
-> deterministic synthetic transaction generator is live. Eleven-phase
-> roadmap below; every phase gets a dedicated design doc under
-> [`docs/`](docs/).
+> deterministic synthetic transaction generator is live. Thirteen-phase
+> roadmap below (plus an optional 14th), weighted for **dbt + Snowflake
+> depth**; every phase gets a dedicated design doc under [`docs/`](docs/).
 
 ## What this project demonstrates
 
-- **CDC from first principles** — Debezium reading the Postgres WAL,
-  exactly-once ordering guarantees via LSN, ordered delivery to Kafka
-- **dbt at expert level** — sources, staging, intermediate, marts,
-  snapshots (SCD2), exposures, tests, macros, docs, incremental models
+- **CDC capture** — Debezium reading the Postgres WAL into Kafka with
+  `REPLICA IDENTITY FULL`, LSN-ordered delivery, snapshot + streaming
+  modes; kept deliberately minimal so dbt + Snowflake stay the focus
+- **dbt at expert level** — sources (with freshness), staging,
+  intermediate, marts, SCD2 snapshots, singular + generic + `dbt-utils`
+  + `dbt-expectations` tests, incremental models (merge with
+  late-arriving handling), dispatch macros, pre/post hooks, exposures,
+  metrics (MetricFlow), hosted docs with full lineage
+- **Package authoring** — an internal `dbt_banking` package with
+  reusable macros (surrogate hash keys, grain reconciliation, PII hash)
+  and banking-specific custom tests (`balance_never_negative`,
+  `transactions_tie_to_balance`, `scd2_overlap_check`)
 - **Dimensional modelling for banking** — Kimball star schema on a
-  realistic OLTP domain: `dim_customer`, `dim_account` (SCD2),
-  `fact_transaction`, `fact_balance_daily`, `fact_card_events`
-- **Snowflake specifics** — warehouses, credits, time travel, streams,
-  tasks, incremental micro-partition pruning
-- **Regulatory data quality** — Great Expectations gates at every layer,
-  row-count reconciliation, referential integrity, PII column-level masking
-- **Audit lineage** — every row-level change traceable from mart back to
-  the originating WAL event
-- **Jenkins declarative pipeline** as a first-class deliverable, not just a
-  portfolio artefact
+  realistic OLTP domain: `dim_customer` (SCD2), `dim_account` (SCD2),
+  `fact_transaction`, `fact_balance_daily`
+- **Snowflake specifics** — role hierarchy (SYSADMIN / SECURITYADMIN /
+  functional + access roles), warehouse sizing + auto-suspend, resource
+  monitors with credit quotas, query-tag-per-dbt-model cost attribution,
+  **Streams + Tasks** (as an in-warehouse orchestration alternative to
+  Airflow, built here side-by-side), time travel + zero-copy clones,
+  clustering keys with query-profile before/after screenshots
+- **Enterprise governance** — Snowflake dynamic data masking on PII,
+  row access policies for customer segmentation, grants managed via
+  dbt post-hooks
+- **Regulatory data quality** — Great Expectations gates at every
+  layer, row-count reconciliation, referential integrity, source
+  freshness, and a reconciliation suite that proves fact grains tie
+  back to source WAL event counts
+- **Senior-level CI** — blue/green deploys using Snowflake **zero-copy
+  clones** per PR, dbt in `--defer --state:modified+` mode, lineage
+  diff + row-count delta posted into the PR
+- **Multi-orchestrator** — Airflow DAG and Jenkins declarative pipeline
+  mirror the GitHub Actions pipeline so all three coexist in-repo for
+  side-by-side comparison
 
 ## Architecture (high level)
 
@@ -90,19 +109,27 @@ Detailed component topology, ADRs, and design principles land in
 
 ## Roadmap
 
+Weighted for **dbt + Snowflake depth**. Phase 2 (Debezium + Kafka) is
+deliberately compressed to one phase; the saved budget expands dbt
+(foundation, marts, package authoring, tests) and Snowflake (governance,
+Streams + Tasks, masking, cost + perf, zero-copy-clone CI).
+
 | Phase | Focus | Status | Notes |
 |-------|-------|--------|-------|
 | 0 | Repo scaffolding, tooling, CI | ✅ done | [docs/phase-00-scaffolding.md](docs/phase-00-scaffolding.md) |
 | 1 | Postgres OLTP schema + synthetic transaction generator | ✅ done | [docs/phase-01-postgres-oltp.md](docs/phase-01-postgres-oltp.md) |
-| 2 | Debezium + Kafka (CDC capture, docker-compose) | ⏳ planned | |
-| 3 | Bronze CDC landing — raw change events into Snowflake | ⏳ planned | |
-| 4 | dbt sources + staging models | ⏳ planned | |
-| 5 | dbt snapshots — SCD2 on `dim_customer`, `dim_account` | ⏳ planned | |
-| 6 | dbt marts — `fact_transaction`, `fact_balance_daily`, `fact_card_events` | ⏳ planned | |
-| 7 | Great Expectations quality gates + dbt tests | ⏳ planned | |
-| 8 | PII column-level masking + row-level audit log | ⏳ planned | |
-| 9 | Airflow orchestration (daily incremental) | ⏳ planned | |
-| 10 | Jenkins declarative pipeline + dbt docs + CI polish | ⏳ planned | |
+| 2 | Debezium + Kafka Connect — minimal CDC capture | ⏳ next | [docs/phase-02-debezium-kafka.md](docs/phase-02-debezium-kafka.md) |
+| 3 | Snowflake account + governance + Kafka Connector → `raw` schema | ⏳ planned | |
+| 4 | dbt-snowflake foundation: profiles, sources (with freshness), staging | ⏳ planned | |
+| 5 | Intermediate + marts: `dim_customer` / `dim_account` SCD2, `fact_transaction`, `fact_balance_daily` | ⏳ planned | |
+| 6 | Snowflake Streams + Tasks (in-warehouse orchestration, compared to Airflow) | ⏳ planned | |
+| 7 | Package authoring: `dbt_banking` with custom macros + banking-specific tests | ⏳ planned | |
+| 8 | PII governance: dynamic masking + row access policies + grants via post-hooks | ⏳ planned | |
+| 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer | ⏳ planned | |
+| 10 | Snowflake cost + perf: resource monitors, query tags, warehouse sizing, clustering | ⏳ planned | |
+| 11 | Blue/green CI with zero-copy clones (`--defer --state:modified+`), PR lineage diff | ⏳ planned | |
+| 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish | ⏳ planned | |
+| 13 | Jenkins declarative pipeline + Airflow DAG (orchestrator comparison) | optional | |
 
 ## Tech stack (target)
 
@@ -149,8 +176,48 @@ docker compose -f compose/docker-compose.yml exec postgres \
     psql -U banking -d banking_oltp -c "SELECT count(*) FROM transactions;"
 ```
 
-Later phases add Debezium, Kafka, Snowflake, dbt, and Airflow — see the
-per-phase docs in [`docs/`](docs/) as they land.
+### Phase 2 quickstart — attach Debezium + Kafka
+
+```bash
+# Install the kafka extra (requests) in addition to the postgres extra.
+pip install -e ".[dev,postgres,kafka]"
+
+# One-time: fetch the Debezium Postgres connector plugin into
+# compose/connect/plugins/ (idempotent, respects corp CA env).
+./scripts/fetch-debezium.sh
+
+# Bring up Postgres + Zookeeper + Kafka + Kafka Connect.
+docker compose -f compose/docker-compose.yml up -d
+
+# Wait for Kafka Connect's REST API (~30-60s on first boot).
+banking-cdc kafka wait
+
+# Register the Debezium Postgres source connector (idempotent — safe to re-run).
+banking-cdc kafka register
+
+# Verify the connector + its tasks are RUNNING.
+banking-cdc kafka status
+
+# Produce some write activity so WAL has change events to decode.
+banking-cdc seed run --customers 100 --duration 30 --tps 20 --seed 42
+
+# Tail a topic from inside the Kafka container (change events as JSON).
+docker compose -f compose/docker-compose.yml exec kafka \
+    kafka-console-consumer \
+    --bootstrap-server kafka:9092 \
+    --topic banking.public.transactions \
+    --from-beginning \
+    --max-messages 5 \
+    --property print.key=true
+
+# Optional: run the Phase 2 smoke test (opt-in via marker).
+pytest -m cdc
+```
+
+Later phases land Snowflake (Phase 3), dbt + marts (Phases 4–7), governance
+(Phase 8), quality + reconciliation (Phase 9), cost + perf (Phase 10),
+zero-copy-clone CI (Phase 11), and dbt docs (Phase 12). See the per-phase
+docs in [`docs/`](docs/) as they land.
 
 ## Two operating modes
 
