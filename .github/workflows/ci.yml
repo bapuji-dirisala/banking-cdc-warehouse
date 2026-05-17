@@ -50,10 +50,14 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: install package with dev extras
+      # Unit tests import from banking_cdc.oltp / .seed which need the
+      # ``postgres`` extra (SQLAlchemy, psycopg, Faker) even though they
+      # don't hit a real database. Extend this list as future phases add
+      # their own extras (``kafka``, ``snowflake``, ``dbt``, …).
+      - name: install package with dev + runtime extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,postgres]"
 
       # Integration + warehouse tests are deselected by default via the
       # pyproject marker filter — they need Postgres / Kafka / Snowflake.
