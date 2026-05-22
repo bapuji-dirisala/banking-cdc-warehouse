@@ -237,13 +237,64 @@ docker compose -f compose/docker-compose.yml exec kafka \
     --property print.key=true
 
 # Optional: run the Phase 2 smoke test (opt-in via marker).
-pytest -m cdc
+pytest -m cdc tests/kafka/
 ```
 
-Later phases land Snowflake (Phase 3), dbt + marts (Phases 4–7), governance
-(Phase 8), quality + reconciliation (Phase 9), cost + perf (Phase 10),
-zero-copy-clone CI (Phase 11), and dbt docs (Phase 12). See the per-phase
-docs in [`docs/`](docs/) as they land.
+### Phase 3 quickstart — DuckDB sink + Snowflake-as-code
+
+Phase 3 lands the warehouse layer: a Python CDC sink into local **DuckDB**
+plus the production Snowflake artifacts committed under
+[`snowflake/`](snowflake/). The sink is what makes the CDC pipeline
+visible end-to-end on a free local warehouse — the Snowflake side is
+reviewable code, not a running deployment.
+
+```bash
+# Install the warehouse extra (duckdb + kafka-python).
+pip install -e ".[dev,postgres,kafka,warehouse]"
+
+# One-time: initialise the DuckDB raw schema.
+banking-cdc sink init
+
+# Run the sink. Blocks until Ctrl-C. Subscribes to all four Debezium topics,
+# applies envelope semantics (c|r|u|d) into DuckDB raw.* tables.
+# Open a second shell for the next commands.
+banking-cdc sink run
+
+# In another shell, produce write activity so the sink has something to do.
+banking-cdc seed run --customers 100 --duration 30 --tps 20 --seed 42
+
+# Check what landed.
+banking-cdc sink status
+
+# Attach a DuckDB REPL on the same file (reads are safe while the sink
+# holds the write lock).
+duckdb warehouse/banking.duckdb -c "SELECT COUNT(*) FROM raw.transactions"
+duckdb warehouse/banking.duckdb -c "
+    SELECT __op, COUNT(*) FROM raw.transactions GROUP BY 1 ORDER BY 1
+"
+
+# Opt-in Phase 3 smoke test (requires the full stack + sink + seed above).
+pytest -m cdc tests/sink/
+```
+
+### Snowflake path (code-only — not deployed by this repo)
+
+The production path replaces the Python DuckDB sink with the official
+Snowflake Kafka Connector. All Snowflake artifacts live under
+[`snowflake/`](snowflake/) — role hierarchy, warehouses, resource
+monitors, database/schema layout, grants — plus the connector config at
+[`compose/connect/connectors/snowflake-sink.json`](compose/connect/connectors/snowflake-sink.json).
+See [`snowflake/README.md`](snowflake/README.md) and
+[`docs/phase-03-warehouse-foundation.md`](docs/phase-03-warehouse-foundation.md)
+for the full rationale and application steps.
+
+Later phases land dbt dual-target (DuckDB `dev` + Snowflake `prod`) marts
+(Phases 4–5), Snowflake Streams + Tasks as code (Phase 6), the
+`dbt_banking` package (Phase 7), PII governance as code (Phase 8), the
+reconciliation + QA layer (Phase 9), the Snowflake cost/perf runbook
+(Phase 10), the blue/green zero-copy-clone CI (Phase 11), and the hosted
+dbt docs site (Phase 12). See the per-phase docs in [`docs/`](docs/) as
+they land.
 
 ## Two operating modes
 

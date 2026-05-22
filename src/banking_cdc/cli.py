@@ -9,9 +9,12 @@ Subcommand groups track phase deliverables:
 - ``banking-cdc kafka register``  — register the Debezium Postgres connector
 - ``banking-cdc kafka status``    — show connector + task states
 - ``banking-cdc kafka reset-slot`` — drop the connector + replication slot (recovery)
+- ``banking-cdc sink init``       — idempotently apply the DuckDB raw schema
+- ``banking-cdc sink run``        — long-running Kafka → DuckDB consumer
+- ``banking-cdc sink status``     — print row counts per raw table
 
-argparse (stdlib) is used deliberately so the ``postgres`` and ``kafka``
-extras stay minimal.
+argparse (stdlib) is used deliberately so the ``postgres`` / ``kafka`` /
+``warehouse`` extras stay minimal.
 """
 
 from __future__ import annotations
@@ -19,12 +22,19 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import CreateTable
 
 from banking_cdc.oltp import Base, create_engine_from_env
 from banking_cdc.seed import GeneratorConfig, generate_batch, persist_batch
+
+# Repo-root-relative path to the committed DuckDB raw schema. Resolved from
+# ``src/banking_cdc/cli.py`` → parents[2] = <repo root>.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_DUCKDB_PATH = _REPO_ROOT / "warehouse" / "banking.duckdb"
+DEFAULT_RAW_SCHEMA_PATH = _REPO_ROOT / "sql" / "duckdb" / "raw_schema.sql"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -72,6 +82,43 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Drop the Debezium connector and its Postgres replication slot (recovery).",
     )
 
+    # --- sink ------------------------------------------------------------
+    sink = subparsers.add_parser(
+        "sink", help="DuckDB CDC sink (Phase 3 — Debezium topics into local DuckDB)."
+    )
+    sink_sub = sink.add_subparsers(dest="sink_command", required=True)
+
+    sink_init = sink_sub.add_parser("init", help="Apply the DuckDB raw schema (idempotent).")
+    sink_init.add_argument(
+        "--duckdb-path",
+        type=Path,
+        default=DEFAULT_DUCKDB_PATH,
+        help=f"Path to the DuckDB file. Default: {DEFAULT_DUCKDB_PATH}",
+    )
+
+    sink_run = sink_sub.add_parser(
+        "run",
+        help="Block in a Kafka → DuckDB consume loop. Ctrl-C to shut down gracefully.",
+    )
+    sink_run.add_argument("--duckdb-path", type=Path, default=DEFAULT_DUCKDB_PATH)
+    sink_run.add_argument("--kafka-bootstrap", default="localhost:19092")
+    sink_run.add_argument("--group-id", default="banking-duckdb-sink")
+    sink_run.add_argument(
+        "--batch-size",
+        type=int,
+        default=1000,
+        help="Max messages per poll; also controls the DuckDB transaction size.",
+    )
+    sink_run.add_argument(
+        "--commit-interval",
+        type=float,
+        default=5.0,
+        help="Max seconds between Kafka offset commits during idle periods.",
+    )
+
+    sink_status = sink_sub.add_parser("status", help="Print row counts per raw.* DuckDB table.")
+    sink_status.add_argument("--duckdb-path", type=Path, default=DEFAULT_DUCKDB_PATH)
+
     return parser
 
 
@@ -85,6 +132,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _handle_seed(args)
     if args.command == "kafka":
         return _handle_kafka(args)
+    if args.command == "sink":
+        return _handle_sink(args)
 
     parser.error(f"unknown command: {args.command}")
     return 2  # unreachable — argparse exits — but appeases the type checker
@@ -191,6 +240,40 @@ def _handle_kafka(args: argparse.Namespace) -> int:
             conn.commit()
         print("Dropped replication slot (if it existed): banking_slot")
         print("Re-run `banking-cdc kafka register` to re-attach.")
+        return 0
+
+    return 2
+
+
+def _handle_sink(args: argparse.Namespace) -> int:
+    # Lazy-imported so the ``warehouse`` extra (duckdb + kafka-python) is
+    # only required when a user actually runs a ``banking-cdc sink ...``
+    # subcommand. The pure envelope unit tests work without the extra.
+    from banking_cdc.sink.duckdb_sink import apply_schema, row_counts, run_sink
+
+    if args.sink_command == "init":
+        apply_schema(args.duckdb_path, DEFAULT_RAW_SCHEMA_PATH)
+        print(f"Applied raw schema from {DEFAULT_RAW_SCHEMA_PATH}")
+        print(f"                     to {args.duckdb_path}")
+        return 0
+
+    if args.sink_command == "run":
+        run_sink(
+            duckdb_path=args.duckdb_path,
+            kafka_bootstrap=args.kafka_bootstrap,
+            group_id=args.group_id,
+            batch_size=args.batch_size,
+            commit_interval_s=args.commit_interval,
+        )
+        return 0
+
+    if args.sink_command == "status":
+        counts = row_counts(args.duckdb_path)
+        for table, count in counts.items():
+            if count < 0:
+                print(f"{table:30s}        -  (table missing — run `banking-cdc sink init`)")
+            else:
+                print(f"{table:30s} {count:>8d}")
         return 0
 
     return 2

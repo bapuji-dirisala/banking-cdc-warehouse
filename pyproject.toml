@@ -44,11 +44,20 @@ postgres = [
     "faker>=27.0",
 ]
 # Phase 2 — Kafka Connect REST client for the ``banking-cdc kafka ...`` CLI
-# and the CDC smoke test. Deliberately lightweight: just ``requests``.
-# A full Kafka client (kafka-python / confluent-kafka) is out of scope for
-# Phase 2 — the smoke test proves CDC via Connect's REST topics endpoint.
+# and the Phase 2 CDC smoke test. Deliberately lightweight: just ``requests``.
+# A full Kafka client (kafka-python / confluent-kafka) is scoped to the
+# ``warehouse`` extra below, because only the sink needs it.
 kafka = [
     "requests>=2.31",
+]
+# Phase 3 — DuckDB sink for Debezium CDC + local dev warehouse. The Snowflake
+# side of this project ships as code only (see ``snowflake/``) so no
+# Snowflake Python dependencies are required here. A production reader
+# swapping to the Snowflake Kafka Connector would additionally install
+# dbt-snowflake / snowflake-connector-python in Phase 4+.
+warehouse = [
+    "duckdb>=0.10",
+    "kafka-python>=2.0",
 ]
 
 [project.scripts]

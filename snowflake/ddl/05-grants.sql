@@ -1,0 +1,98 @@
+-- Grants: access roles onto database objects. Functional roles are
+-- already composed from access roles in 01-roles.sql, so a user granted
+-- BANKING_ENGINEER automatically inherits everything the access roles
+-- gain here.
+--
+-- Pattern per environment: each access role gets USAGE on the database +
+-- schema, then SELECT (read) or SELECT+INSERT+UPDATE+DELETE+TRUNCATE
+-- (write) on the schema's tables. Grants on FUTURE tables are applied so
+-- new tables created later inherit permissions automatically.
+--
+-- The grant block is written out for BANKING_DEV. BANKING_CI and
+-- BANKING_PROD follow the identical pattern (templatise with jinja /
+-- Terraform / dbt macros in a real deployment).
+
+USE ROLE SECURITYADMIN;
+
+-- ---------------------------------------------------------------------------
+-- BANKING_DEV grants (template — repeat for BANKING_CI, BANKING_PROD)
+-- ---------------------------------------------------------------------------
+
+-- Database-level USAGE for every access role.
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_RAW_READ;
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_RAW_WRITE;
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_STAGING_READ;
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_STAGING_WRITE;
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_INTERMEDIATE_READ;
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_INTERMEDIATE_WRITE;
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_MARTS_READ;
+GRANT USAGE ON DATABASE BANKING_DEV TO ROLE AR_MARTS_WRITE;
+
+-- Schema-level USAGE paired with its purpose.
+GRANT USAGE ON SCHEMA BANKING_DEV.RAW          TO ROLE AR_RAW_READ;
+GRANT USAGE ON SCHEMA BANKING_DEV.RAW          TO ROLE AR_RAW_WRITE;
+GRANT USAGE ON SCHEMA BANKING_DEV.STAGING      TO ROLE AR_STAGING_READ;
+GRANT USAGE ON SCHEMA BANKING_DEV.STAGING      TO ROLE AR_STAGING_WRITE;
+GRANT USAGE ON SCHEMA BANKING_DEV.INTERMEDIATE TO ROLE AR_INTERMEDIATE_READ;
+GRANT USAGE ON SCHEMA BANKING_DEV.INTERMEDIATE TO ROLE AR_INTERMEDIATE_WRITE;
+GRANT USAGE ON SCHEMA BANKING_DEV.MARTS        TO ROLE AR_MARTS_READ;
+GRANT USAGE ON SCHEMA BANKING_DEV.MARTS        TO ROLE AR_MARTS_WRITE;
+
+-- Object-level + future grants per schema.
+--
+-- RAW schema.
+GRANT SELECT ON ALL TABLES IN SCHEMA BANKING_DEV.RAW TO ROLE AR_RAW_READ;
+GRANT SELECT ON FUTURE TABLES IN SCHEMA BANKING_DEV.RAW TO ROLE AR_RAW_READ;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON ALL TABLES IN SCHEMA BANKING_DEV.RAW TO ROLE AR_RAW_WRITE;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON FUTURE TABLES IN SCHEMA BANKING_DEV.RAW TO ROLE AR_RAW_WRITE;
+
+-- STAGING schema.
+GRANT SELECT ON ALL TABLES IN SCHEMA BANKING_DEV.STAGING TO ROLE AR_STAGING_READ;
+GRANT SELECT ON FUTURE TABLES IN SCHEMA BANKING_DEV.STAGING TO ROLE AR_STAGING_READ;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON ALL TABLES IN SCHEMA BANKING_DEV.STAGING TO ROLE AR_STAGING_WRITE;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON FUTURE TABLES IN SCHEMA BANKING_DEV.STAGING TO ROLE AR_STAGING_WRITE;
+
+-- INTERMEDIATE schema.
+GRANT SELECT ON ALL TABLES IN SCHEMA BANKING_DEV.INTERMEDIATE TO ROLE AR_INTERMEDIATE_READ;
+GRANT SELECT ON FUTURE TABLES IN SCHEMA BANKING_DEV.INTERMEDIATE TO ROLE AR_INTERMEDIATE_READ;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON ALL TABLES IN SCHEMA BANKING_DEV.INTERMEDIATE TO ROLE AR_INTERMEDIATE_WRITE;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON FUTURE TABLES IN SCHEMA BANKING_DEV.INTERMEDIATE TO ROLE AR_INTERMEDIATE_WRITE;
+
+-- MARTS schema.
+GRANT SELECT ON ALL TABLES IN SCHEMA BANKING_DEV.MARTS TO ROLE AR_MARTS_READ;
+GRANT SELECT ON FUTURE TABLES IN SCHEMA BANKING_DEV.MARTS TO ROLE AR_MARTS_READ;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON ALL TABLES IN SCHEMA BANKING_DEV.MARTS TO ROLE AR_MARTS_WRITE;
+GRANT INSERT, UPDATE, DELETE, TRUNCATE, SELECT
+    ON FUTURE TABLES IN SCHEMA BANKING_DEV.MARTS TO ROLE AR_MARTS_WRITE;
+
+-- ---------------------------------------------------------------------------
+-- BANKING_CI and BANKING_PROD — same pattern, same access-role names.
+--
+-- Repeat the block above with s/BANKING_DEV/BANKING_CI/ and
+-- s/BANKING_DEV/BANKING_PROD/. Not repeated inline here to keep the file
+-- readable; a reader deploying this would templatise it.
+-- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- User-to-role grants — intentionally templates only.
+-- A reader fills in their own user names when applying this. Example
+-- bindings (uncomment + edit):
+-- ---------------------------------------------------------------------------
+--
+-- USE ROLE USERADMIN;
+--
+-- -- Human users.
+-- GRANT ROLE BANKING_ENGINEER TO USER <my_user>;
+-- GRANT ROLE BANKING_ANALYST  TO USER <another_user>;
+-- GRANT ROLE BANKING_READER   TO USER <bi_viewer_user>;
+--
+-- -- Service users.
+-- GRANT ROLE AR_RAW_WRITE     TO USER <banking_kafka_connector_svc>;
+-- GRANT ROLE BANKING_ENGINEER TO USER <banking_dbt_prod_svc>;
