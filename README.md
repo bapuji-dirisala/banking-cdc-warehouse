@@ -11,16 +11,28 @@ changes to Kafka; a Snowflake sink lands raw CDC into a bronze schema;
 dbt promotes bronze → staging → intermediate → marts, with SCD2 snapshots
 on the slowly-changing dimensions and audit history preserved end-to-end.
 
-> **Status:** Phase 1 — Postgres OLTP source with logical WAL + a
-> deterministic synthetic transaction generator is live. Thirteen-phase
-> roadmap below (plus an optional 14th), weighted for **dbt + Snowflake
-> depth**; every phase gets a dedicated design doc under [`docs/`](docs/).
+> **Status:** Phase 2 — Debezium + Kafka Connect reading the Postgres WAL
+> into four JSON topics is live. Thirteen-phase roadmap below (plus an
+> optional 14th), weighted for **dbt + Snowflake depth**, running
+> **end-to-end on a free local DuckDB warehouse** with all Snowflake
+> artifacts committed as reviewable code (zero signup, zero cost, $0
+> forever). Every phase gets a dedicated design doc under [`docs/`](docs/).
 
 ## What this project demonstrates
 
 - **CDC capture** — Debezium reading the Postgres WAL into Kafka with
   `REPLICA IDENTITY FULL`, LSN-ordered delivery, snapshot + streaming
   modes; kept deliberately minimal so dbt + Snowflake stay the focus
+- **CDC sink engineering** — a thin Python consumer subscribes to all four
+  Debezium topics, applies envelope semantics (`op=c|r|u|d`) with offset
+  management, and lands rows into a local DuckDB `raw` schema; the
+  equivalent production Snowflake Kafka Connector config ships committed
+  as code alongside
+- **Dual-adapter dbt** — `profiles.yml` with two targets (`dev`=DuckDB,
+  `prod`=Snowflake) and **dispatch macros** that isolate warehouse-specific
+  SQL (date arithmetic, type casts, merge dialects); the same dbt code
+  builds on both warehouses — a senior-engineer "warehouse portability"
+  discipline most portfolios don't demonstrate
 - **dbt at expert level** — sources (with freshness), staging,
   intermediate, marts, SCD2 snapshots, singular + generic + `dbt-utils`
   + `dbt-expectations` tests, incremental models (merge with
@@ -33,12 +45,16 @@ on the slowly-changing dimensions and audit history preserved end-to-end.
 - **Dimensional modelling for banking** — Kimball star schema on a
   realistic OLTP domain: `dim_customer` (SCD2), `dim_account` (SCD2),
   `fact_transaction`, `fact_balance_daily`
-- **Snowflake specifics** — role hierarchy (SYSADMIN / SECURITYADMIN /
-  functional + access roles), warehouse sizing + auto-suspend, resource
-  monitors with credit quotas, query-tag-per-dbt-model cost attribution,
-  **Streams + Tasks** (as an in-warehouse orchestration alternative to
-  Airflow, built here side-by-side), time travel + zero-copy clones,
-  clustering keys with query-profile before/after screenshots
+- **Snowflake specifics shipped as code** — role hierarchy (SYSADMIN /
+  SECURITYADMIN / functional + access roles), warehouse sizing +
+  auto-suspend, resource monitors with credit quotas, query-tag-per-model
+  cost attribution via a dbt macro, **Streams + Tasks** (in-warehouse
+  orchestration SQL + commentary, compared side-by-side with Airflow in
+  docs), time travel + zero-copy clones (CI orchestration macros committed),
+  clustering keys. Every artifact lives under `snowflake/` and the Kafka
+  Connector config at `compose/connect/connectors/snowflake-sink.json` —
+  reviewable, applicable to any Snowflake account, no trial required to
+  explore the design
 - **Enterprise governance** — Snowflake dynamic data masking on PII,
   row access policies for customer segmentation, grants managed via
   dbt post-hooks
@@ -46,8 +62,11 @@ on the slowly-changing dimensions and audit history preserved end-to-end.
   layer, row-count reconciliation, referential integrity, source
   freshness, and a reconciliation suite that proves fact grains tie
   back to source WAL event counts
-- **Senior-level CI** — blue/green deploys using Snowflake **zero-copy
-  clones** per PR, dbt in `--defer --state:modified+` mode, lineage
+- **Senior-level CI** — the full dbt lineage builds against DuckDB on
+  every PR (fast, free, deterministic); a Snowflake-dialect compile-only
+  pass proves dispatch macros render correctly; the **blue/green
+  zero-copy-clone** orchestration macros + GHA workflow ship committed
+  for the Snowflake path, with `--defer --state:modified+` + PR lineage
   diff + row-count delta posted into the PR
 - **Multi-orchestrator** — Airflow DAG and Jenkins declarative pipeline
   mirror the GitHub Actions pipeline so all three coexist in-repo for
@@ -114,21 +133,28 @@ deliberately compressed to one phase; the saved budget expands dbt
 (foundation, marts, package authoring, tests) and Snowflake (governance,
 Streams + Tasks, masking, cost + perf, zero-copy-clone CI).
 
+**Hybrid runtime strategy.** The project runs end-to-end on a local
+**DuckDB** warehouse (free, file-based, zero signup) with all
+Snowflake-specific artifacts committed as reviewable code under
+`snowflake/`. Phases marked **🧊 code-only** ship Snowflake SQL + configs +
+macros + runbooks but don't execute without a Snowflake account; the dbt
+project runs against DuckDB in CI either way.
+
 | Phase | Focus | Status | Notes |
 |-------|-------|--------|-------|
 | 0 | Repo scaffolding, tooling, CI | ✅ done | [docs/phase-00-scaffolding.md](docs/phase-00-scaffolding.md) |
 | 1 | Postgres OLTP schema + synthetic transaction generator | ✅ done | [docs/phase-01-postgres-oltp.md](docs/phase-01-postgres-oltp.md) |
-| 2 | Debezium + Kafka Connect — minimal CDC capture | ⏳ next | [docs/phase-02-debezium-kafka.md](docs/phase-02-debezium-kafka.md) |
-| 3 | Snowflake account + governance + Kafka Connector → `raw` schema | ⏳ planned | |
-| 4 | dbt-snowflake foundation: profiles, sources (with freshness), staging | ⏳ planned | |
-| 5 | Intermediate + marts: `dim_customer` / `dim_account` SCD2, `fact_transaction`, `fact_balance_daily` | ⏳ planned | |
-| 6 | Snowflake Streams + Tasks (in-warehouse orchestration, compared to Airflow) | ⏳ planned | |
-| 7 | Package authoring: `dbt_banking` with custom macros + banking-specific tests | ⏳ planned | |
-| 8 | PII governance: dynamic masking + row access policies + grants via post-hooks | ⏳ planned | |
-| 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer | ⏳ planned | |
-| 10 | Snowflake cost + perf: resource monitors, query tags, warehouse sizing, clustering | ⏳ planned | |
-| 11 | Blue/green CI with zero-copy clones (`--defer --state:modified+`), PR lineage diff | ⏳ planned | |
-| 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish | ⏳ planned | |
+| 2 | Debezium + Kafka Connect — minimal CDC capture | ✅ done | [docs/phase-02-debezium-kafka.md](docs/phase-02-debezium-kafka.md) |
+| 3 | Warehouse foundation: DuckDB sink + Snowflake DDL as code + Snowflake Kafka Connector config | ⏳ next | [docs/phase-03-warehouse-foundation.md](docs/phase-03-warehouse-foundation.md) |
+| 4 | dbt dual-target: `profiles.yml` (DuckDB + Snowflake), sources (with freshness), staging + dispatch macros | ⏳ planned | |
+| 5 | Intermediate + marts: `dim_customer` / `dim_account` SCD2, `fact_transaction`, `fact_balance_daily` (runs on DuckDB) | ⏳ planned | |
+| 6 | Snowflake Streams + Tasks (in-warehouse orchestration) 🧊 code-only, compared to Airflow in docs | ⏳ planned | |
+| 7 | Package authoring: `dbt_banking` with custom macros + banking-specific tests (runs on DuckDB) | ⏳ planned | |
+| 8 | PII governance: dynamic masking + row access policies + grants via post-hooks 🧊 code-only | ⏳ planned | |
+| 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer (runs on DuckDB) | ⏳ planned | |
+| 10 | Snowflake cost + perf runbook: resource monitors, query tags, warehouse sizing, clustering 🧊 methodology + templates | ⏳ planned | |
+| 11 | Blue/green CI: dbt build on DuckDB (runs) + zero-copy-clone orchestration for Snowflake 🧊 workflow + macros committed | ⏳ planned | |
+| 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish (runs on DuckDB) | ⏳ planned | |
 | 13 | Jenkins declarative pipeline + Airflow DAG (orchestrator comparison) | optional | |
 
 ## Tech stack (target)
