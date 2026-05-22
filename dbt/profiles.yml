@@ -1,0 +1,50 @@
+# Dual-target dbt profile.
+#
+# `dev` runs against the local DuckDB file this project's CDC sink writes
+# into. `prod` targets Snowflake — the connection fields are populated
+# entirely from environment variables so this file is safe to commit.
+#
+# Nothing secret lives here. See `docs/phase-04-staging.md` for the full
+# env-var reference and the production role / warehouse mapping.
+#
+# Usage from the repo root:
+#
+#   cd dbt
+#   dbt deps  --profiles-dir .
+#   dbt build --profiles-dir . --target dev
+#
+# Or export DBT_PROFILES_DIR=./dbt and skip the flag.
+
+banking_cdc:
+  target: dev
+
+  outputs:
+
+    # ---------------------------------------------------------------------
+    # dev — local DuckDB, zero cost, Nike-safe. Reads from `raw.*` tables
+    # populated by `banking-cdc sink run` (or the fixture seeder in CI).
+    # ---------------------------------------------------------------------
+    dev:
+      type: duckdb
+      path: "{{ env_var('BANKING_CDC_DUCKDB_PATH', '../warehouse/banking.duckdb') }}"
+      schema: main
+      threads: 4
+
+    # ---------------------------------------------------------------------
+    # prod — Snowflake. Not deployed by this repo; included so the dual-
+    # adapter story is reviewable in git. External-browser SSO is the
+    # default; swap authenticator to `snowflake_jwt` + a key-pair for CI
+    # when the time comes.
+    # ---------------------------------------------------------------------
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      authenticator: "{{ env_var('SNOWFLAKE_AUTHENTICATOR', 'externalbrowser') }}"
+      role: "{{ env_var('SNOWFLAKE_ROLE', 'BANKING_ENGINEER') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'WH_TRANSFORM_S') }}"
+      database: "{{ env_var('SNOWFLAKE_DATABASE', 'BANKING_PROD') }}"
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'STAGING') }}"
+      threads: 8
+      client_session_keep_alive: false
+      query_tag: "banking_cdc_dbt"

@@ -1,0 +1,49 @@
+version: 2
+
+sources:
+  - name: banking_raw
+    description: |
+      Raw CDC capture from the Phase 1 Postgres OLTP. In **dev** these
+      tables are populated by `banking-cdc sink run`
+      (DELETE-then-INSERT, current-state semantics). In **prod** they
+      are populated by the Snowflake Kafka Connector (append-only
+      change log). Both shapes are handled by the staging layer's
+      latest-LSN-wins deduplication.
+    schema: raw
+    database: "{{ env_var('BANKING_CDC_RAW_DATABASE', target.database) }}"
+
+    # Freshness is only meaningful when the CDC pipeline is live. In the
+    # fixture-driven CI run we skip freshness; see `dbt source freshness`
+    # usage in docs/phase-04-staging.md.
+    tables:
+      - name: customers
+        description: Customer dimension — latest LSN per `id` is the current row.
+        columns:
+          - name: id
+            description: OLTP primary key (BIGINT).
+          - name: __op
+            description: Debezium op code — `c` create / `r` snapshot / `u` update / `d` delete.
+          - name: __lsn
+            description: Postgres log sequence number — monotonic per transaction.
+          - name: __source_ts_ms
+            description: Source Postgres event time (epoch ms).
+          - name: __ingested_at
+            description: Clock time the sink wrote this row.
+
+      - name: accounts
+        description: Account dimension.
+        columns:
+          - name: id
+            description: OLTP primary key (BIGINT).
+
+      - name: transactions
+        description: Transaction fact — one row per OLTP transaction.
+        columns:
+          - name: id
+            description: OLTP primary key (BIGINT).
+
+      - name: card_events
+        description: Card lifecycle events (auth / capture / decline / reversal / refund).
+        columns:
+          - name: id
+            description: OLTP primary key (BIGINT).

@@ -1,0 +1,148 @@
+version: 2
+
+models:
+
+  # -------------------------------------------------------------------------
+  - name: stg_banking__customers
+    description: |
+      Current-state customer dimension derived from the raw CDC log.
+      Latest `__lsn` wins per `customer_id`; delete tombstones are kept
+      and flagged with `_is_deleted = true` so downstream models can
+      choose their own soft- vs hard-delete semantics.
+    columns:
+      - name: customer_id
+        description: Business primary key — matches the OLTP `customers.id`.
+        data_tests:
+          - unique
+          - not_null
+      - name: external_id
+        description: Stable external customer UUID.
+        data_tests:
+          - not_null
+      - name: email
+        data_tests:
+          - not_null
+      - name: kyc_status
+        description: Known KYC states — mirrors the Postgres `kyc_status` enum.
+        data_tests:
+          - accepted_values:
+              values: ["pending", "verified", "rejected"]
+      - name: _cdc_op
+        description: Debezium op from the latest change event.
+        data_tests:
+          - accepted_values:
+              values: ["c", "r", "u", "d"]
+      - name: _is_deleted
+        data_tests:
+          - not_null
+
+  # -------------------------------------------------------------------------
+  - name: stg_banking__accounts
+    description: Current-state account dimension; same dedup rules as customers.
+    columns:
+      - name: account_id
+        data_tests:
+          - unique
+          - not_null
+      - name: account_number
+        data_tests:
+          - not_null
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_banking__customers')
+              field: customer_id
+      - name: account_type
+        data_tests:
+          - accepted_values:
+              values: ["checking", "savings", "credit"]
+      - name: account_status
+        data_tests:
+          - accepted_values:
+              values: ["active", "frozen", "closed"]
+      - name: _cdc_op
+        data_tests:
+          - accepted_values:
+              values: ["c", "r", "u", "d"]
+
+  # -------------------------------------------------------------------------
+  - name: stg_banking__transactions
+    description: |
+      Current-state transaction fact. One row per OLTP transaction, with
+      latest-known status (pending → posted → reversed) resolved via
+      LSN-wins dedup. Amount is cast back to NUMERIC(18, 4) because the
+      source connector emits decimals as strings for lossless transport.
+    columns:
+      - name: transaction_id_pk
+        description: BIGINT PK from the OLTP table — stable across updates.
+        data_tests:
+          - unique
+          - not_null
+      - name: transaction_uuid
+        description: UUID used for external correlation (idempotent writes).
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_banking__accounts')
+              field: account_id
+      - name: amount
+        data_tests:
+          - not_null
+      - name: direction
+        data_tests:
+          - accepted_values:
+              values: ["debit", "credit"]
+      - name: transaction_type
+        data_tests:
+          - accepted_values:
+              values:
+                - "purchase"
+                - "deposit"
+                - "withdrawal"
+                - "transfer_in"
+                - "transfer_out"
+                - "fee"
+                - "interest"
+      - name: transaction_status
+        data_tests:
+          - accepted_values:
+              values: ["pending", "posted", "reversed"]
+      - name: _cdc_op
+        data_tests:
+          - accepted_values:
+              values: ["c", "r", "u", "d"]
+
+  # -------------------------------------------------------------------------
+  - name: stg_banking__card_events
+    description: Card lifecycle events; latest-LSN wins per `card_event_id_pk`.
+    columns:
+      - name: card_event_id_pk
+        data_tests:
+          - unique
+          - not_null
+      - name: card_event_uuid
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('stg_banking__accounts')
+              field: account_id
+      - name: card_event_type
+        data_tests:
+          - accepted_values:
+              values: ["authorization", "capture", "decline", "reversal", "refund"]
+      - name: amount
+        data_tests:
+          - not_null
+      - name: _cdc_op
+        data_tests:
+          - accepted_values:
+              values: ["c", "r", "u", "d"]

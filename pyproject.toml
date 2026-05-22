@@ -59,6 +59,14 @@ warehouse = [
     "duckdb>=0.10",
     "kafka-python>=2.0",
 ]
+# Phase 4 — dbt dual-adapter transforms. ``dbt-duckdb`` runs in dev + CI;
+# the Snowflake adapter is deliberately NOT installed here because the
+# production path is code-only in this repo. A deployer running against a
+# real Snowflake would ``pip install dbt-snowflake~=1.8`` on top of this
+# extra. ``dbt-duckdb`` pulls ``dbt-core`` + ``duckdb`` transitively.
+dbt = [
+    "dbt-duckdb>=1.8",
+]
 
 [project.scripts]
 banking-cdc = "banking_cdc.cli:main"

@@ -1,0 +1,10 @@
+# Keep the package graph small on purpose:
+#
+# - dbt_utils gives us the surrogate-key, generate_series, equal_rowcount,
+#   and union_relations macros we'll lean on in later phases.
+#
+# Phase 4 doesn't yet use the package — committing it now so `dbt deps`
+# is a stable, idempotent step in CI from day one.
+packages:
+  - package: dbt-labs/dbt_utils
+    version: [">=1.3.0", "<2.0.0"]

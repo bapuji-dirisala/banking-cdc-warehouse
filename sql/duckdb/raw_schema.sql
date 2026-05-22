@@ -4,21 +4,24 @@
 -- Applied idempotently via `banking-cdc sink init`, or manually:
 --     duckdb warehouse/banking.duckdb < sql/duckdb/raw_schema.sql
 --
--- The sink (src/banking_cdc/sink/duckdb_sink.py) performs DELETE-then-INSERT
--- against these tables so each message is idempotent and the current-state
--- row-per-pk invariant always holds.
+-- There are NO primary keys at the raw layer on purpose. Raw is bronze
+-- and must tolerate both the current-state shape (Phase 3 DuckDB sink
+-- does DELETE-then-INSERT per PK) and the append-only change-log shape
+-- (Snowflake Kafka Connector in prod, which writes every change event).
+-- Latest-LSN-wins deduplication is enforced at the Phase 4 staging layer
+-- (dbt QUALIFY), which is portable across both shapes.
 --
--- The Postgres native ENUM types (kyc_status, account_type, etc.) land here
--- as VARCHAR so dbt staging can cast them explicitly without needing a
--- parallel enum definition. The CHECK constraints on the Postgres side are
--- intentionally not reproduced — the raw layer is bronze, not validated;
--- Phase 4 staging enforces shape, and Phase 9 adds the full data-quality
--- test suite.
+-- The Postgres native ENUM types (kyc_status, account_type, etc.) land
+-- here as VARCHAR so dbt staging can cast them explicitly without needing
+-- a parallel enum definition. The CHECK constraints on the Postgres side
+-- are intentionally not reproduced — the raw layer is bronze, not
+-- validated; Phase 4 staging enforces shape, and Phase 9 adds the full
+-- data-quality test suite.
 
 CREATE SCHEMA IF NOT EXISTS raw;
 
 CREATE TABLE IF NOT EXISTS raw.customers (
-    id              BIGINT PRIMARY KEY,
+    id              BIGINT,
     external_id     UUID,
     first_name      VARCHAR,
     last_name       VARCHAR,
@@ -36,7 +39,7 @@ CREATE TABLE IF NOT EXISTS raw.customers (
 );
 
 CREATE TABLE IF NOT EXISTS raw.accounts (
-    id              BIGINT PRIMARY KEY,
+    id              BIGINT,
     account_number  VARCHAR,
     customer_id     BIGINT,
     account_type    VARCHAR,
@@ -52,7 +55,7 @@ CREATE TABLE IF NOT EXISTS raw.accounts (
 );
 
 CREATE TABLE IF NOT EXISTS raw.transactions (
-    id                BIGINT PRIMARY KEY,
+    id                BIGINT,
     transaction_id    UUID,
     account_id        BIGINT,
     amount            DECIMAL(18, 4),
@@ -71,7 +74,7 @@ CREATE TABLE IF NOT EXISTS raw.transactions (
 );
 
 CREATE TABLE IF NOT EXISTS raw.card_events (
-    id              BIGINT PRIMARY KEY,
+    id              BIGINT,
     event_id        UUID,
     account_id      BIGINT,
     transaction_id  UUID,

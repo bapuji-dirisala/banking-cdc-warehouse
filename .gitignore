@@ -58,7 +58,10 @@ dbt/logs/
 dbt/.user.yml
 
 # Snowflake / connector configs — never commit
+# (dbt/profiles.yml is allow-listed because it uses env_var() for every
+# secret — no credentials ever live in the committed file)
 profiles.yml
+!dbt/profiles.yml
 .snowsql/
 .snowflake/
 

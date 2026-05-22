@@ -288,6 +288,46 @@ See [`snowflake/README.md`](snowflake/README.md) and
 [`docs/phase-03-warehouse-foundation.md`](docs/phase-03-warehouse-foundation.md)
 for the full rationale and application steps.
 
+### Phase 4 quickstart — dbt staging (dual-adapter)
+
+Phase 4 lands the first dbt layer: four staging views that project
+Debezium raw rows into a clean dimensional shape, with envelope-aware
+latest-LSN-wins deduplication. The dbt project is **dual-target** —
+same SQL runs against local DuckDB (`dev`) and Snowflake (`prod`).
+
+```bash
+# Install the dbt extra (pulls dbt-core + dbt-duckdb; adds no runtime
+# weight to the sink).
+pip install -e ".[dev,postgres,kafka,warehouse,dbt]"
+
+# One-shot: apply the raw schema and seed a tiny deterministic fixture.
+# (In normal dev you'd use `banking-cdc sink run` + `banking-cdc seed run`
+# instead to populate raw.* from a real CDC stream.)
+python scripts/seed-duckdb-fixture.py
+
+# Install dbt packages (currently just dbt_utils).
+cd dbt
+dbt deps --profiles-dir .
+
+# Build every staging model + run every test. --fail-fast surfaces the
+# first failing test instead of running the whole DAG.
+dbt build --profiles-dir . --target dev --fail-fast
+
+# Query the latest-wins dedup result.
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT customer_id, first_name, kyc_status, _cdc_op, _cdc_lsn
+    FROM staging.stg_banking__customers
+    ORDER BY customer_id
+"
+```
+
+The Snowflake production target lives in the same
+[`dbt/profiles.yml`](dbt/profiles.yml) under `prod:` — every secret is
+sourced from `env_var()` so the file is safe to commit. See
+[`docs/phase-04-staging.md`](docs/phase-04-staging.md) for the full
+dedup rationale and dispatch-macro plan for the two places DuckDB and
+Snowflake SQL legitimately diverge.
+
 Later phases land dbt dual-target (DuckDB `dev` + Snowflake `prod`) marts
 (Phases 4–5), Snowflake Streams + Tasks as code (Phase 6), the
 `dbt_banking` package (Phase 7), PII governance as code (Phase 8), the
