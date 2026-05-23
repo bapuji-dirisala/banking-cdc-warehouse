@@ -145,6 +145,63 @@ models:
         data_tests:
           - not_null
 
+  - name: dim_customer_scd2
+    description: |
+      SCD2 history of customers — one row per (customer, version).
+      Backed by the dbt snapshot `snap_banking__customers`. Use for
+      point-in-time joins where fct.posted_at falls in [valid_from, valid_to).
+    columns:
+      - name: customer_scd2_sk
+        description: hash(customer_id || valid_from) — unique per version.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: Business key — repeats across versions.
+        data_tests:
+          - not_null
+      - name: valid_from
+        data_tests:
+          - not_null
+      - name: is_current
+        data_tests:
+          - not_null
+      - name: dbt_scd_id
+        description: dbt-generated row-level unique id.
+        data_tests:
+          - unique
+          - not_null
+
+  - name: dim_account_scd2
+    description: |
+      SCD2 history of accounts. Same shape conventions as
+      dim_customer_scd2.
+    columns:
+      - name: account_scd2_sk
+        description: hash(account_id || valid_from) — unique per version.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - not_null
+      - name: customer_id
+        description: FK to customers — nullable only during delete tombstones.
+      - name: valid_from
+        data_tests:
+          - not_null
+      - name: is_current
+        data_tests:
+          - not_null
+      - name: dbt_scd_id
+        data_tests:
+          - unique
+          - not_null
+      - name: account_status
+        data_tests:
+          - accepted_values:
+              values: ["active", "frozen", "closed"]
+
   - name: fct_card_events
     description: |
       Card lifecycle fact (auth / capture / decline / reversal / refund).

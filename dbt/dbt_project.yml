@@ -13,6 +13,17 @@ seed-paths: ["seeds"]
 macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
+# Phase 6 — SCD2 history via dbt snapshots over the staging layer. The
+# snapshot table itself IS the SCD2 — dbt adds dbt_valid_from /
+# dbt_valid_to / dbt_scd_id columns. Thin SCD2 dim views in marts/core
+# alias those to business-friendly names.
+snapshots:
+  banking_cdc:
+    +target_schema: snapshots
+    +strategy: timestamp
+    +updated_at: updated_at
+    +invalidate_hard_deletes: true
+
 target-path: "target"
 clean-targets:
   - "target"

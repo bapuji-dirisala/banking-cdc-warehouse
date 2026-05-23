@@ -360,6 +360,44 @@ See [`docs/phase-05-marts.md`](docs/phase-05-marts.md) for the full
 dimensional model, delete-semantics-per-layer table, and the measure +
 label conventions.
 
+### Phase 6 quickstart — SCD2 snapshots + Snowflake Streams/Tasks
+
+Phase 6 adds SCD2 history for `customers` + `accounts` via `dbt
+snapshot`, and commits the Snowflake Streams-and-Tasks topology under
+[`snowflake/streams-tasks/`](snowflake/streams-tasks/) as the production
+CDC-on-CDC pattern (reviewable code, not deployed here).
+
+```bash
+# Snapshots run as part of `dbt build` — no new commands needed.
+cd dbt
+dbt build --profiles-dir . --target dev --fail-fast
+
+# The snapshot table itself IS the SCD2 (dbt adds dbt_valid_from etc.).
+# Inspect:
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT customer_id, kyc_status, dbt_valid_from, dbt_valid_to
+    FROM snapshots.snap_banking__customers
+    ORDER BY customer_id, dbt_valid_from
+"
+
+# Point-in-time join via the dim_customer_scd2 wrapper view:
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT t.transaction_id_pk, t.posted_at, t.amount,
+           c.full_name, c.kyc_status_label
+    FROM marts.fct_transactions t
+    JOIN marts.dim_customer_scd2 c
+      ON t.customer_id = c.customer_id
+     AND t.posted_at >= c.valid_from
+     AND (t.posted_at < c.valid_to OR c.valid_to IS NULL)
+    ORDER BY t.posted_at
+"
+```
+
+See [`docs/phase-06-snapshots-streams.md`](docs/phase-06-snapshots-streams.md)
+for the full SCD2 semantics, the dev-vs-prod matrix, and
+[`snowflake/streams-tasks/README.md`](snowflake/streams-tasks/README.md)
+for the Streams + Tasks DAG design + apply order.
+
 Later phases land dbt dual-target (DuckDB `dev` + Snowflake `prod`) marts
 (Phases 4–5), Snowflake Streams + Tasks as code (Phase 6), the
 `dbt_banking` package (Phase 7), PII governance as code (Phase 8), the

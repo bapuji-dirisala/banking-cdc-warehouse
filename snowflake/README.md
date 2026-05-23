@@ -38,6 +38,9 @@ banking-cdc kafka register   # the register command loads whichever config
 | `ddl/03-resource-monitors.sql` | Per-warehouse monthly resource monitors + account-level cap |
 | `ddl/04-databases.sql` | Three-env namespace (`BANKING_DEV` / `BANKING_CI` / `BANKING_PROD`) with 5 schemas each |
 | `ddl/05-grants.sql` | Access-role grants onto objects + user-to-role grant templates |
+| `streams-tasks/01-raw-streams.sql` | Phase 6 — CREATE STREAM on each raw.* table (CDC-on-CDC) |
+| `streams-tasks/02-staging-refresh-task.sql` | Phase 6 — Task DAG + stored procedure that drains streams into the staging layer |
+| `streams-tasks/03-admin.sql` | Phase 6 — RESUME/SUSPEND/SHOW/EXECUTE ops for the Task DAG |
 | `../compose/connect/connectors/snowflake-sink.json` | Snowflake Kafka Connector config (sibling of the committed `pg-source.json` Debezium config) |
 
 ## Why "as code" instead of "deployed in a trial"
