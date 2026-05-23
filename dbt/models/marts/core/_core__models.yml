@@ -1,0 +1,184 @@
+version: 2
+
+models:
+
+  # =========================================================================
+  # Dimensions
+  # =========================================================================
+
+  - name: dim_customer
+    description: |
+      Customer dimension — SCD1 current-state view. Deleted customers
+      are filtered out; SCD2 history lands in Phase 6 via dbt snapshots.
+    columns:
+      - name: customer_sk
+        description: Hashed surrogate key over `customer_id`. Stable across runs.
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        description: BIGINT natural key from the OLTP source.
+        data_tests:
+          - unique
+          - not_null
+      - name: external_id
+        data_tests:
+          - not_null
+      - name: full_name
+        data_tests:
+          - not_null
+      - name: email
+        data_tests:
+          - not_null
+      - name: kyc_status
+        data_tests:
+          - accepted_values:
+              values: ["pending", "verified", "rejected"]
+      - name: age_years
+        description: Current age in whole years, derived from `date_of_birth`.
+        data_tests:
+          - not_null
+
+  - name: dim_account
+    description: |
+      Account dimension — SCD1. Carries `customer_sk` so a star-schema
+      join from a fact to customer only needs one hop.
+    columns:
+      - name: account_sk
+        description: Hashed surrogate key over `account_id`.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        data_tests:
+          - unique
+          - not_null
+      - name: account_number
+        data_tests:
+          - not_null
+      - name: customer_sk
+        description: FK to dim_customer.
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_sk
+      - name: account_type
+        data_tests:
+          - accepted_values:
+              values: ["checking", "savings", "credit"]
+      - name: account_status
+        data_tests:
+          - accepted_values:
+              values: ["active", "frozen", "closed"]
+      - name: is_closed
+        data_tests:
+          - not_null
+
+  # =========================================================================
+  # Facts
+  # =========================================================================
+
+  - name: fct_transactions
+    description: |
+      Transaction fact at OLTP-transaction grain. Carries both
+      `account_sk` and `customer_sk` so single-dim-hop queries stay cheap.
+      Signed_amount uses account-holder sign convention (debit → negative).
+    columns:
+      - name: transaction_sk
+        description: Hashed surrogate key over `transaction_id_pk`.
+        data_tests:
+          - unique
+          - not_null
+      - name: transaction_id_pk
+        data_tests:
+          - unique
+          - not_null
+      - name: transaction_uuid
+        description: External correlation UUID.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_sk
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_account')
+              field: account_sk
+      - name: customer_sk
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_sk
+      - name: amount
+        description: Unsigned transaction amount in `currency`.
+        data_tests:
+          - not_null
+      - name: signed_amount
+        description: Debits negative, credits positive — from account-holder perspective.
+        data_tests:
+          - not_null
+      - name: direction
+        data_tests:
+          - accepted_values:
+              values: ["debit", "credit"]
+      - name: transaction_type
+        data_tests:
+          - accepted_values:
+              values:
+                - "purchase"
+                - "deposit"
+                - "withdrawal"
+                - "transfer_in"
+                - "transfer_out"
+                - "fee"
+                - "interest"
+      - name: transaction_status
+        data_tests:
+          - accepted_values:
+              values: ["pending", "posted", "reversed"]
+      - name: posted_at
+        data_tests:
+          - not_null
+      - name: posted_date
+        data_tests:
+          - not_null
+
+  - name: fct_card_events
+    description: |
+      Card lifecycle fact (auth / capture / decline / reversal / refund).
+      `transaction_uuid` is nullable because declines never produce a
+      posted transaction.
+    columns:
+      - name: card_event_sk
+        data_tests:
+          - unique
+          - not_null
+      - name: card_event_id_pk
+        data_tests:
+          - unique
+          - not_null
+      - name: card_event_uuid
+        data_tests:
+          - unique
+          - not_null
+      - name: account_sk
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_account')
+              field: account_sk
+      - name: card_event_type
+        data_tests:
+          - accepted_values:
+              values: ["authorization", "capture", "decline", "reversal", "refund"]
+      - name: amount
+        data_tests:
+          - not_null
+      - name: card_last4
+        data_tests:
+          - not_null
+      - name: occurred_at
+        data_tests:
+          - not_null

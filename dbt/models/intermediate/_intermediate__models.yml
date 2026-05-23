@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: int_banking__transactions_enriched
+    description: |
+      Transactions joined to their account and customer, with enum
+      decoding, a signed_amount measure, and a boolean revenue classifier.
+      Ephemeral — downstream `fct_transactions` folds it in as a CTE.
+    columns:
+      - name: transaction_id_pk
+        description: BIGINT PK — survives the join unchanged.
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: FK into stg_banking__accounts.
+      - name: customer_id
+        description: FK into stg_banking__customers via accounts.
+      - name: signed_amount
+        description: |
+          `-amount` for debits, `+amount` for credits. The signing
+          convention here is from the **account holder's perspective**:
+          a purchase decreases the balance (negative), a deposit
+          increases it (positive).
+      - name: is_debit
+        data_tests:
+          - not_null
+      - name: is_revenue_txn
+        description: True for `fee` and `interest` transaction types.
+        data_tests:
+          - not_null

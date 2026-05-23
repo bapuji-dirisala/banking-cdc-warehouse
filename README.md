@@ -328,6 +328,38 @@ sourced from `env_var()` so the file is safe to commit. See
 dedup rationale and dispatch-macro plan for the two places DuckDB and
 Snowflake SQL legitimately diverge.
 
+### Phase 5 quickstart — intermediate + marts
+
+Phase 5 lands the first star schema on top of staging: two dims, two
+facts, and two business-level aggregates. Every mart carries both
+surrogate keys (for star-schema joins) and natural keys (for ad-hoc
+queries); facts expose both raw enum codes and display labels.
+
+```bash
+# `dbt build` from Phase 4 already builds the full DAG — same command,
+# more models + tests behind it.
+cd dbt
+dbt build --profiles-dir . --target dev --fail-fast
+
+# A couple of inspect queries that showcase what landed.
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT customer_sk, full_name, kyc_status_label, age_years
+    FROM marts.dim_customer ORDER BY customer_id
+"
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT account_sk, posted_date, net_change, credits, debits, txn_count
+    FROM marts.agg_daily_account_balance ORDER BY posted_date
+"
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT customer_sk, business_month, fees_revenue, interest_revenue, total_revenue
+    FROM marts.agg_monthly_customer_revenue ORDER BY customer_sk
+"
+```
+
+See [`docs/phase-05-marts.md`](docs/phase-05-marts.md) for the full
+dimensional model, delete-semantics-per-layer table, and the measure +
+label conventions.
+
 Later phases land dbt dual-target (DuckDB `dev` + Snowflake `prod`) marts
 (Phases 4–5), Snowflake Streams + Tasks as code (Phase 6), the
 `dbt_banking` package (Phase 7), PII governance as code (Phase 8), the

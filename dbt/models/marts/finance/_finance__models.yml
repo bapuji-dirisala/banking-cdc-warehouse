@@ -1,0 +1,84 @@
+version: 2
+
+models:
+
+  - name: agg_daily_account_balance
+    description: |
+      One row per (account, business_date). `net_change` is the net
+      balance delta the account saw that day (credits − debits) from
+      `posted` transactions only. Phase 7 will anchor this to opening
+      balances to produce running account balances.
+    columns:
+      - name: account_sk
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_account')
+              field: account_sk
+      - name: customer_sk
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_sk
+      - name: business_date
+        data_tests:
+          - not_null
+      - name: net_change
+        data_tests:
+          - not_null
+      - name: credits
+        data_tests:
+          - not_null
+      - name: debits
+        data_tests:
+          - not_null
+      - name: txn_count
+        data_tests:
+          - not_null
+      - name: currency
+        data_tests:
+          - not_null
+
+    # Composite PK — a given (account, date) is unique in this agg.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - account_sk
+            - business_date
+
+  - name: agg_monthly_customer_revenue
+    description: |
+      One row per (customer, business_month). Covers bank-side revenue
+      from fees + interest on posted transactions.
+    columns:
+      - name: customer_sk
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_sk
+      - name: business_month
+        data_tests:
+          - not_null
+      - name: fees_revenue
+        data_tests:
+          - not_null
+      - name: interest_revenue
+        data_tests:
+          - not_null
+      - name: total_revenue
+        data_tests:
+          - not_null
+      - name: revenue_txn_count
+        data_tests:
+          - not_null
+      - name: currency
+        data_tests:
+          - not_null
+
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - customer_sk
+            - business_month

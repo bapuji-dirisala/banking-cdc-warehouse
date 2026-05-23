@@ -14,7 +14,7 @@
 -- matters.)
 
 DELETE FROM raw.card_events  WHERE id IN (1, 2);
-DELETE FROM raw.transactions WHERE id IN (1, 2, 3);
+DELETE FROM raw.transactions WHERE id IN (1, 2, 3, 4, 5);
 DELETE FROM raw.accounts     WHERE id IN (1, 2);
 DELETE FROM raw.customers    WHERE id IN (1, 2, 3);
 
@@ -70,7 +70,17 @@ INSERT INTO raw.transactions VALUES
   (3, '66666666-6666-6666-6666-666666666666', 2, 200.0000, 'USD', 'debit',
    'withdrawal', 'posted', 'atm', TIMESTAMPTZ '2024-02-12 00:00:00Z',
    TIMESTAMPTZ '2024-02-12 00:00:00Z', TIMESTAMPTZ '2024-02-12 00:00:00Z',
-   'c', 1700000070000, 180, CURRENT_TIMESTAMP);
+   'c', 1700000070000, 180, CURRENT_TIMESTAMP),
+
+  -- fee + interest give the Phase 5 revenue agg at least one non-empty row.
+  (4, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 1, 5.0000, 'USD', 'debit',
+   'fee', 'posted', 'monthly service fee', TIMESTAMPTZ '2024-02-15 00:00:00Z',
+   TIMESTAMPTZ '2024-02-15 00:00:00Z', TIMESTAMPTZ '2024-02-15 00:00:00Z',
+   'c', 1700000080000, 190, CURRENT_TIMESTAMP),
+  (5, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 2, 1.2500, 'USD', 'credit',
+   'interest', 'posted', 'savings interest', TIMESTAMPTZ '2024-02-28 00:00:00Z',
+   TIMESTAMPTZ '2024-02-28 00:00:00Z', TIMESTAMPTZ '2024-02-28 00:00:00Z',
+   'c', 1700000090000, 200, CURRENT_TIMESTAMP);
 
 -- card_events -----------------------------------------------------------
 INSERT INTO raw.card_events VALUES

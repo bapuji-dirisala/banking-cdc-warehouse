@@ -31,4 +31,26 @@ models:
       +docs:
         node_color: "#9FD2CB"
 
-# Phase 4 only ships staging. Intermediate / marts land in P5+.
+    # Phase 5 — intermediate. Ephemeral by default: these get inlined as
+    # CTEs into their downstream mart, which keeps the warehouse clean of
+    # one-off joined-and-decoded shapes nobody queries directly.
+    intermediate:
+      +materialized: ephemeral
+      +schema: intermediate
+      +docs:
+        node_color: "#C9ADA7"
+
+    # Phase 5 — marts. Materialized as tables because these are the
+    # pay-once-read-many layer serving dashboards + exports. The two
+    # sub-folders are the standard "core star-schema" vs "business
+    # subject area" split; P5 only ships one subject area (finance),
+    # P9+ will add risk, operations, etc.
+    marts:
+      +materialized: table
+      +schema: marts
+      core:
+        +docs:
+          node_color: "#A6E3A1"
+      finance:
+        +docs:
+          node_color: "#F9E2AF"
