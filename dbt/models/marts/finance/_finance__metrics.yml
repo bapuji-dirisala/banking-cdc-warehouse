@@ -1,0 +1,117 @@
+version: 2
+
+# Phase 7 — dbt semantic layer definitions.
+#
+# `semantic_models` declare the join graph + measures + dimensions over
+# fct_* tables; `metrics` compose those measures into named business
+# metrics. Together they give downstream BI tools (dbt Cloud SL,
+# MetricFlow, Lightdash, Tableau Cloud Semantic Views, Hex) a single
+# source of truth for metric definitions — no more "what's revenue?"
+# ambiguity between dashboards.
+#
+# These definitions parse under dbt-core 1.6+ but query execution needs
+# the MetricFlow CLI (`pip install dbt-metricflow` then `mf query ...`).
+# Not run in CI because MetricFlow isn't in the project's extras — the
+# yml existing in the committed tree is itself the deliverable.
+
+semantic_models:
+
+  - name: transactions
+    description: Transaction-grain measures from fct_transactions.
+    model: ref('fct_transactions')
+    defaults:
+      agg_time_dimension: posted_at
+
+    entities:
+      - name: transaction
+        type: primary
+        expr: transaction_sk
+      - name: account
+        type: foreign
+        expr: account_sk
+      - name: customer
+        type: foreign
+        expr: customer_sk
+
+    dimensions:
+      - name: posted_at
+        type: time
+        type_params:
+          time_granularity: day
+      - name: transaction_type
+        type: categorical
+      - name: transaction_status
+        type: categorical
+      - name: direction
+        type: categorical
+
+    measures:
+      - name: transaction_count
+        description: Number of transactions.
+        agg: count
+        expr: 1
+      - name: transaction_amount
+        description: Unsigned transaction amount in USD.
+        agg: sum
+        expr: amount
+      - name: transaction_signed_amount
+        description: Signed amount — debits negative, credits positive.
+        agg: sum
+        expr: signed_amount
+      - name: revenue_amount
+        description: Sum of fee + interest transaction amounts.
+        agg: sum
+        expr: case when is_revenue_txn then amount else 0 end
+
+metrics:
+
+  # Business-facing composed metrics. The semantic layer resolves these
+  # to a single SQL query at consumer-side query time, so a BI dashboard
+  # calling "monthly_revenue grouped by customer" gets the exact same
+  # SQL as a Python notebook calling the same metric with the same group.
+
+  - name: posted_transaction_count
+    description: Count of transactions in `posted` status (regulatory default).
+    label: Posted Transactions
+    type: simple
+    type_params:
+      measure: transaction_count
+    filter: |
+      {{ Dimension('transaction__transaction_status') }} = 'posted'
+
+  - name: posted_transaction_volume_usd
+    description: Sum of posted transaction amounts in USD.
+    label: Posted Volume (USD)
+    type: simple
+    type_params:
+      measure: transaction_amount
+    filter: |
+      {{ Dimension('transaction__transaction_status') }} = 'posted'
+
+  - name: net_balance_change_usd
+    description: Signed amount — the net balance delta from posted txns.
+    label: Net Balance Change (USD)
+    type: simple
+    type_params:
+      measure: transaction_signed_amount
+    filter: |
+      {{ Dimension('transaction__transaction_status') }} = 'posted'
+
+  - name: bank_revenue_usd
+    description: |
+      Bank-side revenue from fees + interest on posted transactions. The
+      headline Finance metric this project was built to deliver.
+    label: Bank Revenue (USD)
+    type: simple
+    type_params:
+      measure: revenue_amount
+    filter: |
+      {{ Dimension('transaction__transaction_status') }} = 'posted'
+
+  - name: revenue_per_transaction_usd
+    description: Bank revenue divided by posted transaction count.
+    label: Revenue per Txn (USD)
+    type: ratio
+    type_params:
+      numerator: bank_revenue_usd
+      denominator: posted_transaction_count

@@ -398,6 +398,45 @@ for the full SCD2 semantics, the dev-vs-prod matrix, and
 [`snowflake/streams-tasks/README.md`](snowflake/streams-tasks/README.md)
 for the Streams + Tasks DAG design + apply order.
 
+### Phase 7 quickstart — incremental + metrics + Airflow
+
+Phase 7 lands four production-grade concerns:
+
+1. **`fct_transactions` is now incremental** — uses `_cdc_lsn` as the
+   watermark; portable across DuckDB and Snowflake via `delete+insert`.
+2. **`banking_cdc.*` macro namespace** fleshed out with `safe_divide`
+   and `audit_columns` alongside the Phase 5 `initcap` dispatch.
+3. **Semantic layer** definitions in
+   [`dbt/models/marts/finance/_finance__metrics.yml`](dbt/models/marts/finance/_finance__metrics.yml)
+   — five named metrics (`bank_revenue_usd`, `revenue_per_transaction_usd`,
+   etc.) over fct_transactions, consumable by any MetricFlow-aware BI tool.
+4. **Airflow DAG example** at
+   [`orchestration/airflow/dags/banking_cdc_dbt.py`](orchestration/airflow/dags/banking_cdc_dbt.py)
+   wiring source freshness → deps → build → snapshot + docs.
+
+```bash
+cd dbt
+
+# First run — fct_transactions is incremental; starts with a full build.
+dbt build --profiles-dir . --target dev --fail-fast
+
+# Steady-state — later runs only materialise new _cdc_lsn rows.
+# (In dev with the fixture, no new rows arrive, so this is a no-op
+# incremental run that proves the plumbing works.)
+dbt run  --profiles-dir . --target dev --select fct_transactions
+
+# Force a full rebuild when the fct schema changes.
+dbt run  --profiles-dir . --target dev --select fct_transactions --full-refresh
+
+# Semantic layer: no runtime without MetricFlow, but the yml is parsed
+# and validated by every dbt build. Phase 7 docs explain the MetricFlow
+# install if you want to query metrics via `mf query ...`.
+```
+
+See [`docs/phase-07-packages-metrics.md`](docs/phase-07-packages-metrics.md)
+for the Streams-vs-incremental decision matrix, the dispatch-macro
+pattern, and the Airflow DAG design rationale.
+
 Later phases land dbt dual-target (DuckDB `dev` + Snowflake `prod`) marts
 (Phases 4–5), Snowflake Streams + Tasks as code (Phase 6), the
 `dbt_banking` package (Phase 7), PII governance as code (Phase 8), the

@@ -7,10 +7,31 @@
 
     `fct_transactions` carries both `account_sk` and `customer_sk` so a
     typical star-schema query only hits one dim per subject area, not two.
+
+    Phase 7 — switched to **incremental** using `_cdc_lsn` as the
+    watermark. This is the dbt-native alternative to the Phase 6
+    Snowflake Streams + Tasks pattern: both ways work, both are shipped,
+    the right choice depends on cadence (incremental dbt = batch,
+    streams/tasks = sub-minute). `delete+insert` strategy is portable
+    across DuckDB (default) and Snowflake. Run with `--full-refresh` to
+    rebuild from scratch, e.g. after a schema change.
 #}
+
+{{ config(
+    materialized='incremental',
+    unique_key='transaction_sk',
+    incremental_strategy='delete+insert',
+) }}
 
 with enriched as (
     select * from {{ ref('int_banking__transactions_enriched') }}
+
+    {% if is_incremental() %}
+        -- Only pull rows whose CDC LSN is newer than the max we've
+        -- already materialised. coalesce protects the first incremental
+        -- run after a full refresh (max over empty table is NULL).
+        where _cdc_lsn > (select coalesce(max(source_lsn), 0) from {{ this }})
+    {% endif %}
 ),
 
 accounts as (

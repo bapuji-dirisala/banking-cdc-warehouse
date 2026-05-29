@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: metricflow_time_spine
+    description: |
+      Daily calendar spine consumed by the dbt semantic layer. Any
+      `semantic_model` with a time dimension needs this to resolve
+      `agg_time_dimension` queries that span calendar dates where no
+      underlying fact row exists (e.g. "revenue by month" needs the
+      month label even for empty months).
+    time_spine:
+      standard_granularity_column: date_day
+    columns:
+      - name: date_day
+        description: Calendar day at midnight (date, not timestamp).
+        granularity: day
+        data_tests:
+          - unique
+          - not_null
