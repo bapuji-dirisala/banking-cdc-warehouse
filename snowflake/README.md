@@ -41,6 +41,11 @@ banking-cdc kafka register   # the register command loads whichever config
 | `streams-tasks/01-raw-streams.sql` | Phase 6 — CREATE STREAM on each raw.* table (CDC-on-CDC) |
 | `streams-tasks/02-staging-refresh-task.sql` | Phase 6 — Task DAG + stored procedure that drains streams into the staging layer |
 | `streams-tasks/03-admin.sql` | Phase 6 — RESUME/SUSPEND/SHOW/EXECUTE ops for the Task DAG |
+| `governance/01-tags.sql` | Phase 8 — PII inventory tags (PII_LEVEL, DATA_DOMAIN, RETENTION_CLASS) |
+| `governance/02-masking-policies.sql` | Phase 8 — 4 dynamic masking policies: email, phone, DOB, card_last4 |
+| `governance/03-apply-masking.sql` | Phase 8 — attach policies + tags to every PII column in staging/marts/snapshots |
+| `governance/04-row-access-policies.sql` | Phase 8 — row access policy on fct_transactions by account_type |
+| `governance/05-admin.sql` | Phase 8 — SHOW/inventory queries + role-swap test harness |
 | `../compose/connect/connectors/snowflake-sink.json` | Snowflake Kafka Connector config (sibling of the committed `pg-source.json` Debezium config) |
 
 ## Why "as code" instead of "deployed in a trial"

@@ -437,6 +437,38 @@ See [`docs/phase-07-packages-metrics.md`](docs/phase-07-packages-metrics.md)
 for the Streams-vs-incremental decision matrix, the dispatch-macro
 pattern, and the Airflow DAG design rationale.
 
+### Phase 8 — PII governance (Snowflake code-only + dbt dispatch macros)
+
+Phase 8 ships the full PII governance stack as reviewable code. Primary
+artifacts live in [`snowflake/governance/`](snowflake/governance/) since
+masking + row-access are Snowflake-engine features with no DuckDB
+equivalent. Two companion `banking_cdc.mask_*` dbt macros give consumer
+views a cross-adapter escape hatch.
+
+```sql
+-- The role → access matrix is enforced by Snowflake at query time.
+-- Same SELECT, different data per role:
+
+USE ROLE BANKING_ENGINEER;
+SELECT email FROM BANKING_PROD.MARTS.DIM_CUSTOMER LIMIT 1;
+-- → 'ada@example.com'
+
+USE ROLE BANKING_ANALYST;
+SELECT email FROM BANKING_PROD.MARTS.DIM_CUSTOMER LIMIT 1;
+-- → '***@example.com'
+
+-- Row access policy on fct_transactions:
+USE ROLE BANKING_CREDIT_ANALYST;
+SELECT COUNT(DISTINCT account_type) FROM BANKING_PROD.MARTS.FCT_TRANSACTIONS;
+-- → 1  (only 'credit' is visible to this role)
+```
+
+See [`docs/phase-08-pii-governance.md`](docs/phase-08-pii-governance.md)
+for the full role → access matrix, the privacy-vs-utility rationale per
+masking policy, and the GDPR Right-to-be-Forgotten boundary. The
+[`snowflake/governance/README.md`](snowflake/governance/README.md) has
+the apply order + "why not enforce in dbt?" writeup.
+
 Later phases land dbt dual-target (DuckDB `dev` + Snowflake `prod`) marts
 (Phases 4–5), Snowflake Streams + Tasks as code (Phase 6), the
 `dbt_banking` package (Phase 7), PII governance as code (Phase 8), the
