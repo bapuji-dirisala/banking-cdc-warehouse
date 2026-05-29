@@ -65,3 +65,18 @@ models:
       finance:
         +docs:
           node_color: "#F9E2AF"
+      # Phase 9 — consumer-ready surfaces (always-masked, segment-friendly
+      # views) and the quality/reconciliation layer. Views by default
+      # because consumer surfaces re-shape marts data without owning any
+      # physical storage; reconciliation models that need history can
+      # override to incremental at the model level.
+      consumer:
+        +materialized: view
+        +schema: consumer
+        +docs:
+          node_color: "#B4BEFE"
+      quality:
+        +materialized: view
+        +schema: quality
+        +docs:
+          node_color: "#F38BA8"

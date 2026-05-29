@@ -1,10 +1,11 @@
 # Keep the package graph small on purpose:
 #
-# - dbt_utils gives us the surrogate-key, generate_series, equal_rowcount,
-#   and union_relations macros we'll lean on in later phases.
-#
-# Phase 4 doesn't yet use the package — committing it now so `dbt deps`
-# is a stable, idempotent step in CI from day one.
+# - dbt_utils  — surrogate-key, date_spine, unique_combination_of_columns, etc.
+# - dbt_expectations (Phase 9) — Great-Expectations-style assertions
+#   (sum-range, regex, row-count-equals-other-table) that live inside
+#   `dbt build` rather than needing a parallel GE install.
 packages:
   - package: dbt-labs/dbt_utils
     version: [">=1.3.0", "<2.0.0"]
+  - package: metaplane/dbt_expectations
+    version: [">=0.10.0", "<1.0.0"]

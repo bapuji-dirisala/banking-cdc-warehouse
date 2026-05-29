@@ -23,6 +23,7 @@ asking.
 | `03-apply-masking.sql` | `ALTER COLUMN SET MASKING POLICY` + tag assignment on every PII column |
 | `04-row-access-policies.sql` | Row-access policy on `fct_transactions` + attach |
 | `05-admin.sql` | `SHOW POLICIES`, inventory queries, role-swap test harness |
+| `06-erasure-template.sql` | Phase 9 — GDPR Article 17 right-to-be-forgotten template (cross-layer delete + anonymise) |
 
 ## Apply order
 

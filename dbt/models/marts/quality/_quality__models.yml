@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: recon_transaction_amounts
+    description: |
+      One-row cross-layer reconciliation. Reports the sum of posted
+      transaction amounts at staging, fact, and aggregate layers and
+      flags any discrepancy. Alerting hits `has_discrepancy`.
+    columns:
+      - name: checked_at
+        description: Wall-clock time this recon row was computed.
+        data_tests:
+          - not_null
+      - name: stg_total
+        data_tests:
+          - not_null
+      - name: fct_total
+        data_tests:
+          - not_null
+      - name: agg_total
+        data_tests:
+          - not_null
+      - name: has_discrepancy
+        description: True if any layer-pair diffs by more than $0.0001.
+        data_tests:
+          - not_null
+          # The whole point of this model — in a healthy warehouse this
+          # is always FALSE. Failing this test means something upstream
+          # dropped or added money between layers.
+          - accepted_values:
+              values: [false]

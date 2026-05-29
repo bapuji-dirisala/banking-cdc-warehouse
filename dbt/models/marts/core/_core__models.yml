@@ -30,6 +30,11 @@ models:
       - name: email
         data_tests:
           - not_null
+          # Phase 9 — GE-style regex contract on the identity format.
+          # Keeps us honest if a future upstream change relaxes the OLTP
+          # CHECK constraint.
+          - dbt_expectations.expect_column_values_to_match_regex:
+              regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
       - name: kyc_status
         data_tests:
           - accepted_values:
@@ -115,6 +120,13 @@ models:
         description: Unsigned transaction amount in `currency`.
         data_tests:
           - not_null
+          # Phase 9 — GE-style value-range contract. Catches sign errors
+          # (negatives shouldn't appear in `amount`; `signed_amount`
+          # carries sign) and sanity-bounds the headline measure.
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 1000000
+              strictly: false
       - name: signed_amount
         description: Debits negative, credits positive — from account-holder perspective.
         data_tests:
@@ -236,6 +248,10 @@ models:
       - name: card_last4
         data_tests:
           - not_null
+          # Phase 9 — exact-length contract. If this ever starts failing,
+          # the OLTP schema for card_last4 has drifted.
+          - dbt_expectations.expect_column_value_lengths_to_equal:
+              value: 4
       - name: occurred_at
         data_tests:
           - not_null

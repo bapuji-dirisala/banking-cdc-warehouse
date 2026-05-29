@@ -11,8 +11,10 @@ changes to Kafka; a Snowflake sink lands raw CDC into a bronze schema;
 dbt promotes bronze → staging → intermediate → marts, with SCD2 snapshots
 on the slowly-changing dimensions and audit history preserved end-to-end.
 
-> **Status:** Phase 2 — Debezium + Kafka Connect reading the Postgres WAL
-> into four JSON topics is live. Thirteen-phase roadmap below (plus an
+> **Status:** Phase 9 — data quality + reconciliation shipped
+> (`dbt_expectations` assertions, cross-layer stg ↔ fct ↔ agg
+> reconciliation view, singular tests, first always-masked consumer
+> view, GDPR Art. 17 erasure template). Thirteen-phase roadmap below (plus an
 > optional 14th), weighted for **dbt + Snowflake depth**, running
 > **end-to-end on a free local DuckDB warehouse** with all Snowflake
 > artifacts committed as reviewable code (zero signup, zero cost, $0
@@ -145,14 +147,14 @@ project runs against DuckDB in CI either way.
 | 0 | Repo scaffolding, tooling, CI | ✅ done | [docs/phase-00-scaffolding.md](docs/phase-00-scaffolding.md) |
 | 1 | Postgres OLTP schema + synthetic transaction generator | ✅ done | [docs/phase-01-postgres-oltp.md](docs/phase-01-postgres-oltp.md) |
 | 2 | Debezium + Kafka Connect — minimal CDC capture | ✅ done | [docs/phase-02-debezium-kafka.md](docs/phase-02-debezium-kafka.md) |
-| 3 | Warehouse foundation: DuckDB sink + Snowflake DDL as code + Snowflake Kafka Connector config | ⏳ next | [docs/phase-03-warehouse-foundation.md](docs/phase-03-warehouse-foundation.md) |
-| 4 | dbt dual-target: `profiles.yml` (DuckDB + Snowflake), sources (with freshness), staging + dispatch macros | ⏳ planned | |
-| 5 | Intermediate + marts: `dim_customer` / `dim_account` SCD2, `fact_transaction`, `fact_balance_daily` (runs on DuckDB) | ⏳ planned | |
-| 6 | Snowflake Streams + Tasks (in-warehouse orchestration) 🧊 code-only, compared to Airflow in docs | ⏳ planned | |
-| 7 | Package authoring: `dbt_banking` with custom macros + banking-specific tests (runs on DuckDB) | ⏳ planned | |
-| 8 | PII governance: dynamic masking + row access policies + grants via post-hooks 🧊 code-only | ⏳ planned | |
-| 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer (runs on DuckDB) | ⏳ planned | |
-| 10 | Snowflake cost + perf runbook: resource monitors, query tags, warehouse sizing, clustering 🧊 methodology + templates | ⏳ planned | |
+| 3 | Warehouse foundation: DuckDB sink + Snowflake DDL as code + Snowflake Kafka Connector config | ✅ done | [docs/phase-03-warehouse-foundation.md](docs/phase-03-warehouse-foundation.md) |
+| 4 | dbt dual-target: `profiles.yml` (DuckDB + Snowflake), sources (with freshness), staging + dispatch macros | ✅ done | [docs/phase-04-staging.md](docs/phase-04-staging.md) |
+| 5 | Intermediate + marts: `dim_customer` / `dim_account` SCD2, `fact_transaction`, `fact_balance_daily` (runs on DuckDB) | ✅ done | [docs/phase-05-marts.md](docs/phase-05-marts.md) |
+| 6 | Snowflake Streams + Tasks (in-warehouse orchestration) 🧊 code-only, compared to Airflow in docs | ✅ done | [docs/phase-06-snapshots-streams.md](docs/phase-06-snapshots-streams.md) |
+| 7 | Package authoring: `dbt_banking` with custom macros + banking-specific tests (runs on DuckDB) | ✅ done | [docs/phase-07-packages-metrics.md](docs/phase-07-packages-metrics.md) |
+| 8 | PII governance: dynamic masking + row access policies + grants via post-hooks 🧊 code-only | ✅ done | [docs/phase-08-pii-governance.md](docs/phase-08-pii-governance.md) |
+| 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer (runs on DuckDB) | ✅ done | [docs/phase-09-quality-reconciliation.md](docs/phase-09-quality-reconciliation.md) |
+| 10 | Snowflake cost + perf runbook: resource monitors, query tags, warehouse sizing, clustering 🧊 methodology + templates | ⏳ next | |
 | 11 | Blue/green CI: dbt build on DuckDB (runs) + zero-copy-clone orchestration for Snowflake 🧊 workflow + macros committed | ⏳ planned | |
 | 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish (runs on DuckDB) | ⏳ planned | |
 | 13 | Jenkins declarative pipeline + Airflow DAG (orchestrator comparison) | optional | |
@@ -469,13 +471,51 @@ masking policy, and the GDPR Right-to-be-Forgotten boundary. The
 [`snowflake/governance/README.md`](snowflake/governance/README.md) has
 the apply order + "why not enforce in dbt?" writeup.
 
-Later phases land dbt dual-target (DuckDB `dev` + Snowflake `prod`) marts
-(Phases 4–5), Snowflake Streams + Tasks as code (Phase 6), the
-`dbt_banking` package (Phase 7), PII governance as code (Phase 8), the
-reconciliation + QA layer (Phase 9), the Snowflake cost/perf runbook
-(Phase 10), the blue/green zero-copy-clone CI (Phase 11), and the hosted
-dbt docs site (Phase 12). See the per-phase docs in [`docs/`](docs/) as
-they land.
+### Phase 9 — data quality + reconciliation
+
+Phase 9 raises coverage from "schema shape" to "data truth" by adding
+GE-style assertions (via `dbt_expectations`), a cross-layer
+reconciliation view, two singular tests for the stg ↔ fct invariants,
+the first consumer surface that uses the Phase 8 mask macros, and a
+reviewable GDPR Article 17 erasure template.
+
+```bash
+cd dbt
+
+# Pull dbt_expectations alongside dbt_utils.
+dbt deps --profiles-dir .
+
+# Full build — the new tests run as part of `dbt build`:
+#   • dbt_expectations assertions (regex, value range, exact length)
+#   • singular tests (stg ↔ fct row count + posted sum)
+#   • recon_transaction_amounts materialises as a one-row view
+dbt build --profiles-dir . --target dev --fail-fast
+
+# Inspect the cross-layer reconciliation surface.
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT stg_total, fct_total, agg_total, fct_minus_stg,
+           agg_minus_fct, has_discrepancy
+    FROM quality.recon_transaction_amounts
+"
+
+# Inspect the first always-masked consumer view.
+duckdb ../warehouse/banking.duckdb -c "
+    SELECT customer_sk, email_masked, phone_masked, age_cohort,
+           kyc_status_label
+    FROM consumer.vw_customer_marketing
+    ORDER BY customer_sk
+"
+```
+
+See [`docs/phase-09-quality-reconciliation.md`](docs/phase-09-quality-reconciliation.md)
+for the test-taxonomy table, the `dbt_expectations`-vs-standalone-GE
+rationale, the three cross-layer invariants, and the GDPR Art. 17
+erasure walk-through. The erasure template itself lives at
+[`snowflake/governance/06-erasure-template.sql`](snowflake/governance/06-erasure-template.sql).
+
+Later phases land the Snowflake cost/perf runbook (Phase 10), the
+blue/green zero-copy-clone CI (Phase 11), and the hosted dbt docs site
+(Phase 12). See the per-phase docs in [`docs/`](docs/) as they land.
 
 ## Two operating modes
 

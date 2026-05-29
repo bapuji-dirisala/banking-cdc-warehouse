@@ -46,6 +46,7 @@ banking-cdc kafka register   # the register command loads whichever config
 | `governance/03-apply-masking.sql` | Phase 8 — attach policies + tags to every PII column in staging/marts/snapshots |
 | `governance/04-row-access-policies.sql` | Phase 8 — row access policy on fct_transactions by account_type |
 | `governance/05-admin.sql` | Phase 8 — SHOW/inventory queries + role-swap test harness |
+| `governance/06-erasure-template.sql` | Phase 9 — GDPR Article 17 right-to-be-forgotten erasure template |
 | `../compose/connect/connectors/snowflake-sink.json` | Snowflake Kafka Connector config (sibling of the committed `pg-source.json` Debezium config) |
 
 ## Why "as code" instead of "deployed in a trial"

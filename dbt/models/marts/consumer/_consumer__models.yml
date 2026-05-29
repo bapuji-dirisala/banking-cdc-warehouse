@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: vw_customer_marketing
+    description: |
+      Marketing-safe consumer view over dim_customer. Email and phone
+      are passed through `banking_cdc.mask_email` / `mask_phone` so dev
+      and prod render identically for a Marketing-role consumer:
+
+          dev (DuckDB)      — macros apply deterministic SQL mask
+          prod (Snowflake)  — macros are identity; Snowflake masking
+                              policy on the base column fires per role
+
+      Documented in docs/phase-08-pii-governance.md + phase-09-quality-reconciliation.md.
+    columns:
+      - name: customer_sk
+        description: FK to dim_customer; stable surrogate key.
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_sk
+      - name: email_masked
+        description: Email with local part masked; domain preserved for cohort analysis.
+        data_tests:
+          # On DuckDB dev, the mask macro produces exactly this shape.
+          # On Snowflake prod the policy produces an equivalent shape;
+          # the regex test is a dev-mode guard against accidental
+          # un-masking after a macro edit.
+          - dbt_expectations.expect_column_values_to_match_regex:
+              regex: "^[a-z]\\*\\*\\*@.+$"
+              config:
+                severity: warn  # dev-mode shape guard, not a hard contract
+      - name: age_cohort
+        description: Coarsened age bucket — the only age signal consumers see.
+        data_tests:
+          - accepted_values:
+              values: ["under_25", "25_to_39", "40_to_59", "60_plus"]
+      - name: kyc_status_label
+        data_tests:
+          - accepted_values:
+              values: ["Verified", "Pending Review", "Rejected"]
