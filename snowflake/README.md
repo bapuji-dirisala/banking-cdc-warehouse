@@ -47,6 +47,12 @@ banking-cdc kafka register   # the register command loads whichever config
 | `governance/04-row-access-policies.sql` | Phase 8 — row access policy on fct_transactions by account_type |
 | `governance/05-admin.sql` | Phase 8 — SHOW/inventory queries + role-swap test harness |
 | `governance/06-erasure-template.sql` | Phase 9 — GDPR Article 17 right-to-be-forgotten erasure template |
+| `cost-perf/01-resource-monitor-tuning.sql` | Phase 10 — RM tuning (dev-tier + notification integration + 90% warning) |
+| `cost-perf/02-warehouse-tuning.sql` | Phase 10 — statement timeouts + scaling-policy + dev warehouse |
+| `cost-perf/03-query-tags.sql` | Phase 10 — session/statement tag patterns + cost-per-model report |
+| `cost-perf/04-clustering.sql` | Phase 10 — `CLUSTER BY` on `fct_transactions` + maintenance queries |
+| `cost-perf/05-performance-queries.sql` | Phase 10 — ACCOUNT_USAGE investigation set (top cost, slow queries, warehouse health, hidden costs) |
+| `cost-perf/06-admin.sql` | Phase 10 — SHOW inventory + "did the macro land?" verifier |
 | `../compose/connect/connectors/snowflake-sink.json` | Snowflake Kafka Connector config (sibling of the committed `pg-source.json` Debezium config) |
 
 ## Why "as code" instead of "deployed in a trial"

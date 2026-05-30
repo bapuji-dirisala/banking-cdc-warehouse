@@ -11,10 +11,12 @@ changes to Kafka; a Snowflake sink lands raw CDC into a bronze schema;
 dbt promotes bronze → staging → intermediate → marts, with SCD2 snapshots
 on the slowly-changing dimensions and audit history preserved end-to-end.
 
-> **Status:** Phase 9 — data quality + reconciliation shipped
-> (`dbt_expectations` assertions, cross-layer stg ↔ fct ↔ agg
-> reconciliation view, singular tests, first always-masked consumer
-> view, GDPR Art. 17 erasure template). Thirteen-phase roadmap below (plus an
+> **Status:** Phase 10 — Snowflake cost + performance runbook shipped
+> (code-only): resource-monitor + warehouse tuning on top of the Phase 3
+> baseline, `banking_cdc.query_tag_json()` dbt macro wired project-wide
+> for cost attribution, `CLUSTER BY` on `fct_transactions`, four-section
+> `ACCOUNT_USAGE` investigation set, and the "when to go incremental"
+> decision table. Thirteen-phase roadmap below (plus an
 > optional 14th), weighted for **dbt + Snowflake depth**, running
 > **end-to-end on a free local DuckDB warehouse** with all Snowflake
 > artifacts committed as reviewable code (zero signup, zero cost, $0
@@ -154,8 +156,8 @@ project runs against DuckDB in CI either way.
 | 7 | Package authoring: `dbt_banking` with custom macros + banking-specific tests (runs on DuckDB) | ✅ done | [docs/phase-07-packages-metrics.md](docs/phase-07-packages-metrics.md) |
 | 8 | PII governance: dynamic masking + row access policies + grants via post-hooks 🧊 code-only | ✅ done | [docs/phase-08-pii-governance.md](docs/phase-08-pii-governance.md) |
 | 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer (runs on DuckDB) | ✅ done | [docs/phase-09-quality-reconciliation.md](docs/phase-09-quality-reconciliation.md) |
-| 10 | Snowflake cost + perf runbook: resource monitors, query tags, warehouse sizing, clustering 🧊 methodology + templates | ⏳ next | |
-| 11 | Blue/green CI: dbt build on DuckDB (runs) + zero-copy-clone orchestration for Snowflake 🧊 workflow + macros committed | ⏳ planned | |
+| 10 | Snowflake cost + perf runbook: resource monitors, query tags, warehouse sizing, clustering 🧊 methodology + templates | ✅ done | [docs/phase-10-cost-performance.md](docs/phase-10-cost-performance.md) |
+| 11 | Blue/green CI: dbt build on DuckDB (runs) + zero-copy-clone orchestration for Snowflake 🧊 workflow + macros committed | ⏳ next | |
 | 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish (runs on DuckDB) | ⏳ planned | |
 | 13 | Jenkins declarative pipeline + Airflow DAG (orchestrator comparison) | optional | |
 
@@ -513,9 +515,61 @@ rationale, the three cross-layer invariants, and the GDPR Art. 17
 erasure walk-through. The erasure template itself lives at
 [`snowflake/governance/06-erasure-template.sql`](snowflake/governance/06-erasure-template.sql).
 
-Later phases land the Snowflake cost/perf runbook (Phase 10), the
-blue/green zero-copy-clone CI (Phase 11), and the hosted dbt docs site
-(Phase 12). See the per-phase docs in [`docs/`](docs/) as they land.
+### Phase 10 — Snowflake cost + performance runbook (code-only)
+
+Phase 10 extends the Phase 3 baseline with the tuning patterns a senior
+data engineer actually applies after a month of real billing data:
+resource-monitor tiering, `STATEMENT_TIMEOUT` + queue timeouts,
+scaling-policy choice, clustering keys with maintenance queries, a
+`banking_cdc.query_tag_json()` dbt macro that emits per-model JSON
+tags on Snowflake (no-op on DuckDB), and a four-section
+`ACCOUNT_USAGE` investigation set.
+
+```bash
+# DuckDB side — the set_query_tag() hook is only called by dbt-snowflake,
+# so the macro is a no-op in dev. The full build still passes 158/158
+# tests.
+cd dbt
+dbt build --profiles-dir . --target dev --fail-fast
+
+# Inspect what the macro renders on DuckDB (empty string by design):
+dbt run-operation print_query_tag --profiles-dir . --target dev
+# → query_tag_json() rendered to: ''
+
+# On a Snowflake prod target the same operation renders a JSON blob
+# that dbt-snowflake sets as the session QUERY_TAG for every statement:
+#   query_tag_json() rendered to:
+#     '{"project":"banking_cdc_warehouse","dbt_target":"prod",...}'
+```
+
+```sql
+-- Snowflake side — artifacts under snowflake/cost-perf/ apply in order
+-- (not executed by this repo; reviewable code). Headline queries:
+
+-- 1. Cost per dbt model, last 30 days (requires +query_tag wired).
+SELECT PARSE_JSON(QUERY_TAG):model::STRING AS model_name,
+       COUNT(*) AS n_runs,
+       SUM(TOTAL_ELAPSED_TIME)/3600000.0 AS warehouse_hours
+FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+WHERE START_TIME >= DATEADD('day', -30, CURRENT_TIMESTAMP())
+  AND PARSE_JSON(QUERY_TAG):project::STRING = 'banking_cdc_warehouse'
+GROUP BY 1 ORDER BY warehouse_hours DESC;
+
+-- 2. Clustering health on fct_transactions.
+SELECT SYSTEM$CLUSTERING_INFORMATION(
+    'BANKING_PROD.MARTS.FCT_TRANSACTIONS',
+    '(posted_date, account_id)');
+```
+
+See [`docs/phase-10-cost-performance.md`](docs/phase-10-cost-performance.md)
+for the "when to go incremental" decision table, the 60-30-10
+warehouse-sizing rule, the clustering decision tree, and the DuckDB
+profiling parity notes. The apply order + file-by-file summary lives
+in [`snowflake/cost-perf/README.md`](snowflake/cost-perf/README.md).
+
+Later phases land the blue/green zero-copy-clone CI (Phase 11) and the
+hosted dbt docs site (Phase 12). See the per-phase docs in
+[`docs/`](docs/) as they land.
 
 ## Two operating modes
 

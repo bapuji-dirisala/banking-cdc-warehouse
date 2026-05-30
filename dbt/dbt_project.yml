@@ -31,6 +31,13 @@ clean-targets:
   - "logs"
 
 # Project-wide defaults, overridden per layer below.
+#
+# Phase 10 — Snowflake cost attribution rides on an override of the
+# dbt-snowflake `set_query_tag()` hook (see dbt/macros/query_tag.sql).
+# The adapter calls that hook automatically before every model/test/
+# snapshot build; dbt-duckdb never calls it, so no DuckDB-side wiring
+# is needed. The FinOps queries in snowflake/cost-perf/03-query-tags.sql
+# slice QUERY_HISTORY by the JSON fields the macro emits.
 models:
   banking_cdc:
     # Phase 4 — staging. Views keep the dev inner loop fast on DuckDB;
