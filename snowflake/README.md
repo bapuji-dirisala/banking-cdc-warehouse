@@ -53,6 +53,9 @@ banking-cdc kafka register   # the register command loads whichever config
 | `cost-perf/04-clustering.sql` | Phase 10 — `CLUSTER BY` on `fct_transactions` + maintenance queries |
 | `cost-perf/05-performance-queries.sql` | Phase 10 — ACCOUNT_USAGE investigation set (top cost, slow queries, warehouse health, hidden costs) |
 | `cost-perf/06-admin.sql` | Phase 10 — SHOW inventory + "did the macro land?" verifier |
+| `ci/01-clone-baseline.sql` | Phase 11 — zero-copy `CREATE DATABASE … CLONE` for PR builds |
+| `ci/02-promote-blue-green.sql` | Phase 11 — atomic `ALTER DATABASE … SWAP WITH` promotion on merge |
+| `ci/03-cleanup-clones.sql` | Phase 11 — scheduled sweeper (TASK + stored proc) for stale clones/rollbacks |
 | `../compose/connect/connectors/snowflake-sink.json` | Snowflake Kafka Connector config (sibling of the committed `pg-source.json` Debezium config) |
 
 ## Why "as code" instead of "deployed in a trial"

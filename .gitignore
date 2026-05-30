@@ -56,6 +56,9 @@ dbt/target/
 dbt/dbt_packages/
 dbt/logs/
 dbt/.user.yml
+# Phase 11 — downloaded baseline manifest for --defer --state. CI
+# fetches it per PR; never committed.
+dbt/state/
 
 # Snowflake / connector configs — never commit
 # (dbt/profiles.yml is allow-listed because it uses env_var() for every

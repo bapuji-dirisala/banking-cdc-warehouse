@@ -11,12 +11,13 @@ changes to Kafka; a Snowflake sink lands raw CDC into a bronze schema;
 dbt promotes bronze → staging → intermediate → marts, with SCD2 snapshots
 on the slowly-changing dimensions and audit history preserved end-to-end.
 
-> **Status:** Phase 10 — Snowflake cost + performance runbook shipped
-> (code-only): resource-monitor + warehouse tuning on top of the Phase 3
-> baseline, `banking_cdc.query_tag_json()` dbt macro wired project-wide
-> for cost attribution, `CLUSTER BY` on `fct_transactions`, four-section
-> `ACCOUNT_USAGE` investigation set, and the "when to go incremental"
-> decision table. Thirteen-phase roadmap below (plus an
+> **Status:** Phase 11 — blue/green CI shipped. DuckDB-side
+> `--defer --state:modified+` PR workflow runs on every PR (downloads
+> the main-branch baseline manifest, builds only touched + descendant
+> models, posts a row-count delta as a sticky PR comment). Snowflake-side
+> zero-copy-clone + atomic `SWAP`-promotion workflow committed as
+> reviewable code (`.disabled` suffix keeps GHA from running it without a
+> real Snowflake account). Thirteen-phase roadmap below (plus an
 > optional 14th), weighted for **dbt + Snowflake depth**, running
 > **end-to-end on a free local DuckDB warehouse** with all Snowflake
 > artifacts committed as reviewable code (zero signup, zero cost, $0
@@ -157,8 +158,8 @@ project runs against DuckDB in CI either way.
 | 8 | PII governance: dynamic masking + row access policies + grants via post-hooks 🧊 code-only | ✅ done | [docs/phase-08-pii-governance.md](docs/phase-08-pii-governance.md) |
 | 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer (runs on DuckDB) | ✅ done | [docs/phase-09-quality-reconciliation.md](docs/phase-09-quality-reconciliation.md) |
 | 10 | Snowflake cost + perf runbook: resource monitors, query tags, warehouse sizing, clustering 🧊 methodology + templates | ✅ done | [docs/phase-10-cost-performance.md](docs/phase-10-cost-performance.md) |
-| 11 | Blue/green CI: dbt build on DuckDB (runs) + zero-copy-clone orchestration for Snowflake 🧊 workflow + macros committed | ⏳ next | |
-| 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish (runs on DuckDB) | ⏳ planned | |
+| 11 | Blue/green CI: dbt build on DuckDB (runs) + zero-copy-clone orchestration for Snowflake 🧊 workflow + macros committed | ✅ done | [docs/phase-11-blue-green-ci.md](docs/phase-11-blue-green-ci.md) |
+| 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish (runs on DuckDB) | ⏳ next | |
 | 13 | Jenkins declarative pipeline + Airflow DAG (orchestrator comparison) | optional | |
 
 ## Tech stack (target)
@@ -567,8 +568,53 @@ warehouse-sizing rule, the clustering decision tree, and the DuckDB
 profiling parity notes. The apply order + file-by-file summary lives
 in [`snowflake/cost-perf/README.md`](snowflake/cost-perf/README.md).
 
-Later phases land the blue/green zero-copy-clone CI (Phase 11) and the
-hosted dbt docs site (Phase 12). See the per-phase docs in
+### Phase 11 — blue/green CI with zero-copy clones
+
+Phase 11 lands two complementary CI workflows:
+
+- **DuckDB defer workflow (runs)** — `.github/workflows/pr-lineage.yml`
+  downloads the main-branch baseline manifest, runs
+  `dbt build --target ci --defer --state state/ --select state:modified+`
+  so a PR only materialises the models it touched + their descendants,
+  and posts a row-count delta as a sticky PR comment via
+  `scripts/pr-rowcount-delta.py`.
+- **Snowflake blue/green (code-only)** — zero-copy clone per PR
+  (`snowflake/ci/01-clone-baseline.sql`), atomic `ALTER DATABASE SWAP`
+  promotion on merge (`02-promote-blue-green.sql`), scheduled sweeper
+  task to drop stale clones (`03-cleanup-clones.sql`). The GHA workflow
+  template lives at `.github/workflows/snowflake-blue-green.yml.disabled`
+  (committed with the `.disabled` suffix so GHA ignores it).
+
+```bash
+# Local verification — exercise the defer path on two DuckDB files.
+cd dbt
+dbt build --profiles-dir . --target dev --fail-fast
+cp target/manifest.json state/manifest.json
+
+# Rebuild only state:modified+ into the ci target (should select 0 nodes
+# because nothing changed since the baseline):
+dbt build --profiles-dir . --target ci \
+    --defer --state state/ \
+    --select state:modified+ \
+    --fail-fast
+
+# Exercise the clone macro on DuckDB — adapter dispatch returns a no-op
+# log so a reader can see the intent without a Snowflake account.
+dbt run-operation clone_prod_to_ci --profiles-dir . --target dev \
+    --args '{pr_id: "123"}'
+# → [clone_prod_to_ci] no-op on adapter duckdb — would clone BANKING_PROD
+#   to BANKING_CI_PR_123 on snowflake.
+```
+
+See [`docs/phase-11-blue-green-ci.md`](docs/phase-11-blue-green-ci.md)
+for the sequence tables (SWAP vs CLONE+rename, task vs GHA sweeper), the
+zero-copy-clone storage-cost arithmetic, and the operator TODO list for
+enabling the Snowflake workflow. The apply order lives in
+[`snowflake/ci/README.md`](snowflake/ci/README.md).
+
+Later phases land the hosted dbt docs site + exposures + rowcount
+baseline file (Phase 12), and the Jenkins + Airflow orchestrator
+comparison (Phase 13, optional). See the per-phase docs in
 [`docs/`](docs/) as they land.
 
 ## Two operating modes

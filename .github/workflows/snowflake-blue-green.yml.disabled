@@ -1,0 +1,183 @@
+# Phase 11 — Snowflake blue/green workflow template (DISABLED).
+#
+# Committed with the `.disabled` suffix so GitHub Actions ignores it; the
+# file is the reviewable artifact, not a running workflow. To enable:
+#   1. Rename to `snowflake-blue-green.yml`
+#   2. Provision the Snowflake secrets (listed below) in the repo's
+#      Actions secrets
+#   3. Confirm the dev-tier warehouse + BANKING_CI role exist
+#      (see snowflake/ddl/01-roles.sql — adding BANKING_CI is a Phase 11
+#      TODO)
+#
+# Trigger model:
+#   - pull_request opened/synchronize/reopened  -> clone + build + delta
+#   - pull_request closed (merged=true)         -> promote (SWAP into prod)
+#   - pull_request closed (merged=false)        -> drop clone
+#   - workflow_dispatch                         -> operator-triggered any-of
+#
+# Secrets required (names are the Snowflake-provider standard):
+#   SNOWFLAKE_ACCOUNT
+#   SNOWFLAKE_USER            (service account, not a human)
+#   SNOWFLAKE_PRIVATE_KEY     (key-pair auth; externalbrowser won't work in GHA)
+#   SNOWFLAKE_PRIVATE_KEY_PASSPHRASE (if the key is encrypted)
+#   SNOWFLAKE_ROLE            (BANKING_CI)
+#   SNOWFLAKE_WAREHOUSE       (WH_TRANSFORM_S_DEV)
+#   SNOWFLAKE_DATABASE        (defaults to BANKING_PROD for the clone source)
+
+name: snowflake-blue-green
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "which action to run"
+        required: true
+        type: choice
+        options: [clone, build, promote, drop]
+
+concurrency:
+  group: sf-blue-green-${{ github.workflow }}-${{ github.event.pull_request.number || 'manual' }}
+  cancel-in-progress: false  # NEVER cancel a promote mid-swap
+
+env:
+  PR_ID: ${{ github.event.pull_request.number }}
+  CLONE_DB: BANKING_CI_PR_${{ github.event.pull_request.number }}
+
+jobs:
+
+  clone:
+    name: clone BANKING_PROD -> CI
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: install dbt + snowflake adapter
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,dbt]" dbt-snowflake
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps --profiles-dir .
+
+      - name: clone prod -> CI (dbt macro)
+        working-directory: dbt
+        run: |
+          dbt run-operation clone_prod_to_ci \
+              --profiles-dir . --target prod \
+              --args "{pr_id: '${PR_ID}'}"
+        env:
+          SNOWFLAKE_ACCOUNT:                 ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER:                    ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY:             ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          SNOWFLAKE_AUTHENTICATOR:           snowflake_jwt
+          SNOWFLAKE_ROLE:                    ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_WAREHOUSE:               ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE:                ${{ secrets.SNOWFLAKE_DATABASE }}
+
+  build:
+    name: dbt build against clone
+    needs: clone
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+
+      - name: install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,dbt]" dbt-snowflake
+
+      # Mirror the DuckDB defer workflow — fetch the main-branch Snowflake
+      # manifest (would be published by a separate "nightly-sf-manifest"
+      # job this template omits for brevity).
+      - name: download baseline manifest
+        id: download
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: nightly-sf-manifest.yml
+          workflow_conclusion: success
+          branch: main
+          name: dbt-manifest-sf-main
+          path: dbt/state/
+        continue-on-error: true
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps --profiles-dir .
+
+      - name: dbt build (defer, state:modified+, into clone)
+        working-directory: dbt
+        run: |
+          # Target CLONE_DB instead of BANKING_PROD so writes land in the
+          # per-PR database. --defer reuses baseline refs for untouched models.
+          if [ -f state/manifest.json ]; then
+              dbt build --profiles-dir . --target prod \
+                  --defer --state state/ \
+                  --select state:modified+ \
+                  --fail-fast
+          else
+              dbt build --profiles-dir . --target prod --fail-fast
+          fi
+        env:
+          SNOWFLAKE_DATABASE:                ${{ env.CLONE_DB }}
+          # ... (same secrets as `clone` job)
+
+  promote:
+    name: SWAP clone -> prod on merge
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # ... run snowflake/ci/02-promote-blue-green.sql with PR_ID bound
+
+  drop:
+    name: drop clone on close (merged or not)
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+
+      - name: install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,dbt]" dbt-snowflake
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps --profiles-dir .
+
+      - name: drop CI clone
+        working-directory: dbt
+        run: |
+          dbt run-operation drop_ci_clone \
+              --profiles-dir . --target prod \
+              --args "{pr_id: '${PR_ID}'}"
+        env:
+          # ... (same secrets as `clone` job)
+          _: "see Phase 11 doc for the full secret matrix"

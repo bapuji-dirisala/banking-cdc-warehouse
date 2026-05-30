@@ -1,0 +1,115 @@
+name: pr-lineage
+
+# Phase 11 — on every PR, build + test ONLY the models the PR touched
+# (and their descendants) by deferring unchanged refs to the main-branch
+# baseline manifest. Posts a row-count delta vs the baseline back to the
+# PR as a sticky comment.
+#
+# This workflow is complementary to `ci.yml`:
+#   - ci.yml always runs a full `dbt build` (safety net, 158+ tests)
+#   - pr-lineage.yml runs the state:modified+ subset (fast feedback +
+#     per-model diff). A PR that touches zero models produces an empty
+#     selection and the workflow finishes in seconds.
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-lineage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  # pull-requests:write — needed by the sticky-comment step.
+  pull-requests: write
+  contents: read
+  actions: read
+
+jobs:
+  defer:
+    name: dbt build (defer to main)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for state comparison
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: install dbt + warehouse extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,warehouse,dbt]"
+
+      # Download the main-branch manifest published by ci.yml.
+      # `dawidd6/action-download-artifact` falls back across workflow runs
+      # until it finds the newest matching artifact; critical because the
+      # built-in download-artifact only works within the SAME run.
+      - name: download baseline manifest
+        id: download
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ci.yml
+          workflow_conclusion: success
+          branch: main
+          name: dbt-manifest-main
+          path: dbt/state/
+        continue-on-error: true
+
+      # If no baseline manifest exists yet (first run on a fresh repo),
+      # skip the defer workflow — the main ci.yml job covers the full
+      # build as a safety net.
+      - name: short-circuit if no baseline
+        if: steps.download.outcome != 'success'
+        run: |
+          echo "::notice::no baseline manifest found — skipping defer. "
+          echo "The main ci.yml job will run the full build."
+          exit 0
+
+      - name: seed raw schema + fixture
+        if: steps.download.outcome == 'success'
+        run: python scripts/seed-duckdb-fixture.py
+        env:
+          BANKING_CDC_DUCKDB_PATH: warehouse/banking_ci.duckdb
+
+      - name: dbt deps
+        if: steps.download.outcome == 'success'
+        working-directory: dbt
+        run: dbt deps --profiles-dir .
+
+      # The headline command. `--defer` reuses the baseline manifest for
+      # any ref the PR hasn't touched; `--state:modified+` restricts the
+      # selection to changed-and-descendant models.
+      - name: dbt build --defer --state state/ --select state:modified+
+        if: steps.download.outcome == 'success'
+        working-directory: dbt
+        run: |
+          dbt build --profiles-dir . --target ci \
+              --defer --state state/ \
+              --select state:modified+ \
+              --fail-fast
+        env:
+          BANKING_CDC_DUCKDB_PATH: ../warehouse/banking_ci.duckdb
+
+      - name: compute row-count delta
+        if: steps.download.outcome == 'success'
+        id: delta
+        working-directory: dbt
+        run: |
+          python ../scripts/pr-rowcount-delta.py \
+              --duckdb-path ../warehouse/banking_ci.duckdb \
+              --manifest    state/manifest.json \
+              > delta.md
+          echo "delta<<EOF" >> "$GITHUB_OUTPUT"
+          cat delta.md     >> "$GITHUB_OUTPUT"
+          echo "EOF"       >> "$GITHUB_OUTPUT"
+
+      - name: sticky comment on PR
+        if: steps.download.outcome == 'success'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-lineage-rowcount-delta
+          message: ${{ steps.delta.outputs.delta }}

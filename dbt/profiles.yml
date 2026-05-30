@@ -31,6 +31,20 @@ banking_cdc:
       threads: 4
 
     # ---------------------------------------------------------------------
+    # ci — Phase 11 defer-based PR builds. Same engine as dev (DuckDB) but
+    # points at a per-PR database path so the baseline (main branch's
+    # manifest) and the PR build can coexist on the runner for state
+    # comparison. The GHA PR workflow downloads the main-branch
+    # manifest artifact into state/, then invokes:
+    #   dbt build --target ci --defer --state state/ --select state:modified+
+    # ---------------------------------------------------------------------
+    ci:
+      type: duckdb
+      path: "{{ env_var('BANKING_CDC_DUCKDB_PATH', '../warehouse/banking_ci.duckdb') }}"
+      schema: main
+      threads: 4
+
+    # ---------------------------------------------------------------------
     # prod — Snowflake. Not deployed by this repo; included so the dual-
     # adapter story is reviewable in git. External-browser SSO is the
     # default; swap authenticator to `snowflake_jwt` + a key-pair for CI

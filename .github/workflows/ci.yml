@@ -93,3 +93,16 @@ jobs:
       - name: dbt build (dev target)
         working-directory: dbt
         run: dbt build --profiles-dir . --target dev --fail-fast
+
+      # Phase 11 — on main-branch builds only, publish the resulting
+      # manifest as a workflow artifact. The PR-lineage workflow
+      # (.github/workflows/pr-lineage.yml) downloads it to drive
+      # `--defer --state:modified+` so a PR build only materialises
+      # changed-and-descendant models.
+      - name: upload baseline manifest (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-manifest-main
+          path: dbt/target/manifest.json
+          retention-days: 14
