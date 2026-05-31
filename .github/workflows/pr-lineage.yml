@@ -59,6 +59,20 @@ jobs:
           path: dbt/state/
         continue-on-error: true
 
+      # Phase 12 — pull the per-model rowcount baseline so the delta
+      # table shows a signed Δ column instead of "n/a". Soft-fails on
+      # first ever PR (artifact doesn't exist yet).
+      - name: download rowcount baseline
+        id: download_counts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: ci.yml
+          workflow_conclusion: success
+          branch: main
+          name: rowcount-baseline-main
+          path: dbt/state/
+        continue-on-error: true
+
       # If no baseline manifest exists yet (first run on a fresh repo),
       # skip the defer workflow — the main ci.yml job covers the full
       # build as a safety net.
@@ -99,9 +113,14 @@ jobs:
         id: delta
         working-directory: dbt
         run: |
+          baseline_arg=""
+          if [ -f state/rowcount-baseline.json ]; then
+              baseline_arg="--baseline-counts state/rowcount-baseline.json"
+          fi
           python ../scripts/pr-rowcount-delta.py \
               --duckdb-path ../warehouse/banking_ci.duckdb \
               --manifest    state/manifest.json \
+              $baseline_arg \
               > delta.md
           echo "delta<<EOF" >> "$GITHUB_OUTPUT"
           cat delta.md     >> "$GITHUB_OUTPUT"

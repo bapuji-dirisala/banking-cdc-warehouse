@@ -1,8 +1,11 @@
 # banking-cdc-warehouse
 
 [![ci](https://github.com/bapuji-dirisala/banking-cdc-warehouse/actions/workflows/ci.yml/badge.svg)](https://github.com/bapuji-dirisala/banking-cdc-warehouse/actions/workflows/ci.yml)
+[![docs](https://github.com/bapuji-dirisala/banking-cdc-warehouse/actions/workflows/docs.yml/badge.svg)](https://bapuji-dirisala.github.io/banking-cdc-warehouse/)
 [![python](https://img.shields.io/badge/python-3.11-blue)](pyproject.toml)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+**Hosted docs (lineage + exposures + metrics):** <https://bapuji-dirisala.github.io/banking-cdc-warehouse/>
 
 Regulatory-grade banking warehouse built on change-data-capture. A Postgres
 OLTP simulates retail-banking activity (customers, accounts, transactions,
@@ -11,13 +14,13 @@ changes to Kafka; a Snowflake sink lands raw CDC into a bronze schema;
 dbt promotes bronze → staging → intermediate → marts, with SCD2 snapshots
 on the slowly-changing dimensions and audit history preserved end-to-end.
 
-> **Status:** Phase 11 — blue/green CI shipped. DuckDB-side
-> `--defer --state:modified+` PR workflow runs on every PR (downloads
-> the main-branch baseline manifest, builds only touched + descendant
-> models, posts a row-count delta as a sticky PR comment). Snowflake-side
-> zero-copy-clone + atomic `SWAP`-promotion workflow committed as
-> reviewable code (`.disabled` suffix keeps GHA from running it without a
-> real Snowflake account). Thirteen-phase roadmap below (plus an
+> **Status:** Phase 12 — hosted dbt docs site live on GitHub Pages
+> (lineage DAG, column-level docs, 5 declared exposures with owner
+> contacts, Phase 7 metrics, Phase 9 test suite). Rowcount baseline
+> publishing closes the "n/a" gap in the Phase 11 PR delta table so
+> every PR comment now carries signed row-count Δ per model. All 12
+> core phases shipped; Phase 13 (Jenkins + Airflow orchestrator
+> comparison) remains optional. Thirteen-phase roadmap below (plus an
 > optional 14th), weighted for **dbt + Snowflake depth**, running
 > **end-to-end on a free local DuckDB warehouse** with all Snowflake
 > artifacts committed as reviewable code (zero signup, zero cost, $0
@@ -159,7 +162,7 @@ project runs against DuckDB in CI either way.
 | 9 | Data quality: full test suite + source freshness + reconciliation + GE per layer (runs on DuckDB) | ✅ done | [docs/phase-09-quality-reconciliation.md](docs/phase-09-quality-reconciliation.md) |
 | 10 | Snowflake cost + perf runbook: resource monitors, query tags, warehouse sizing, clustering 🧊 methodology + templates | ✅ done | [docs/phase-10-cost-performance.md](docs/phase-10-cost-performance.md) |
 | 11 | Blue/green CI: dbt build on DuckDB (runs) + zero-copy-clone orchestration for Snowflake 🧊 workflow + macros committed | ✅ done | [docs/phase-11-blue-green-ci.md](docs/phase-11-blue-green-ci.md) |
-| 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish (runs on DuckDB) | ⏳ next | |
+| 12 | dbt docs site + exposures + metrics + architecture diagrams + README polish (runs on DuckDB) | ✅ done | [docs/phase-12-docs-and-exposures.md](docs/phase-12-docs-and-exposures.md) |
 | 13 | Jenkins declarative pipeline + Airflow DAG (orchestrator comparison) | optional | |
 
 ## Tech stack (target)
@@ -612,10 +615,54 @@ zero-copy-clone storage-cost arithmetic, and the operator TODO list for
 enabling the Snowflake workflow. The apply order lives in
 [`snowflake/ci/README.md`](snowflake/ci/README.md).
 
-Later phases land the hosted dbt docs site + exposures + rowcount
-baseline file (Phase 12), and the Jenkins + Airflow orchestrator
-comparison (Phase 13, optional). See the per-phase docs in
-[`docs/`](docs/) as they land.
+### Phase 12 — hosted docs, exposures, rowcount baseline
+
+Phase 12 closes the portfolio with three artifacts:
+
+1. **Hosted dbt docs site** at
+   <https://bapuji-dirisala/github.io/banking-cdc-warehouse/> —
+   lineage DAG, column-level docs, declared exposures, metrics, test
+   coverage. Published on every push to main via
+   [`.github/workflows/docs.yml`](.github/workflows/docs.yml) (single-file
+   deployable; manifest + catalog inlined into `index.html`).
+2. **Exposures** at [`dbt/models/exposures.yml`](dbt/models/exposures.yml)
+   — 5 declared downstream consumers (finance dashboard, marketing
+   cohort builder, regulatory reporting, data-quality dashboard, ML
+   fraud scoring) each with owner contact, maturity label, and a
+   `depends_on` list. Enables `dbt build --select +exposure:<name>`
+   for targeted "rebuild for consumer X" workflows.
+3. **Rowcount baseline publishing** — fills the "n/a" gap in the
+   Phase 11 PR delta. Every main build now emits
+   `rowcount-baseline.json` as a GHA artifact; the PR workflow
+   downloads it and the delta comment shows signed Δ per model.
+
+```bash
+# Local — generate + preview the hosted docs site:
+cd dbt
+dbt build --profiles-dir . --target dev --fail-fast
+dbt docs generate --profiles-dir . --target dev
+dbt docs serve --profiles-dir . --target dev   # opens http://localhost:8080
+
+# Local — build the rowcount baseline (what main CI uploads):
+python ../scripts/rowcount-baseline.py \
+    --duckdb-path ../warehouse/banking.duckdb \
+    --manifest    target/manifest.json \
+    --output      ../rowcount-baseline.json
+
+# Rebuild only the models + metrics the executive dashboard depends on:
+dbt build --profiles-dir . --target dev \
+    --select +exposure:finance_executive_dashboard
+```
+
+See [`docs/phase-12-docs-and-exposures.md`](docs/phase-12-docs-and-exposures.md)
+for the exposure matrix, the rowcount-baseline + PR-delta loop
+sequence, the "single-file deploy" inline-manifest trick, and the
+one-time repo-settings flip required to enable Pages.
+
+The optional Phase 13 (Jenkins + Airflow orchestrator comparison)
+lands on demand; the twelve core phases above shipped end-to-end on
+DuckDB with every Snowflake-specific artifact committed as reviewable
+code.
 
 ## Two operating modes
 

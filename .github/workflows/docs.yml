@@ -1,0 +1,121 @@
+name: docs
+
+# Phase 12 — build and publish the dbt docs site to GitHub Pages on every
+# push to main. The published site is the hosted lineage browser —
+# column-level DAG, exposures with owner contacts, metric definitions,
+# source freshness checks, test coverage.
+#
+# One-time setup required in the repo UI:
+#   Settings → Pages → Build and deployment → Source: "GitHub Actions"
+# The first successful run after that flip starts serving at
+#   https://<owner>.github.io/<repo>/
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.workflow }}
+  cancel-in-progress: false   # NEVER cancel a deploy mid-upload
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+
+  build:
+    name: dbt docs generate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: install dbt + warehouse extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,warehouse,dbt]"
+
+      - name: seed raw schema + fixture
+        run: python scripts/seed-duckdb-fixture.py
+
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps --profiles-dir .
+
+      - name: dbt docs generate
+        working-directory: dbt
+        run: |
+          # Build first so test + run results populate the docs with
+          # real pass/fail / rowcount annotations.
+          dbt build --profiles-dir . --target dev --fail-fast
+          # `dbt docs generate` writes manifest.json, catalog.json, and
+          # the pre-rendered index.html into target/.
+          dbt docs generate --profiles-dir . --target dev
+
+      # The default dbt docs structure separates index.html from the
+      # per-manifest payload. Collapse them into a single-file site that
+      # GitHub Pages can serve statically. dbt's docs runner expects
+      # fetch of manifest.json / catalog.json; inlining avoids that.
+      - name: inline manifest + catalog into index.html
+        working-directory: dbt/target
+        run: |
+          python <<'PY'
+          import json, re
+          from pathlib import Path
+
+          here = Path(".")
+          index = here / "index.html"
+          manifest = json.loads((here / "manifest.json").read_text())
+          catalog  = json.loads((here / "catalog.json").read_text())
+
+          # dbt docs loads the two JSONs at runtime; inlining is a well-
+          # known trick to make the docs site a single-file deployable.
+          html = index.read_text()
+          injection = (
+              "<script>"
+              f"window.__INITIAL_MANIFEST__ = {json.dumps(manifest)};"
+              f"window.__INITIAL_CATALOG__  = {json.dumps(catalog)};"
+              "</script>"
+          )
+          # Hook the injection just before </head> so the docs app has
+          # the globals before its own init runs.
+          html = re.sub(r"</head>", injection + "</head>", html, count=1)
+          index.write_text(html)
+          PY
+
+      - name: assemble site/ (just index.html — the inlined single-file build)
+        run: |
+          mkdir -p site
+          cp dbt/target/index.html site/index.html
+          # 404 that redirects back to index — avoids the GH Pages
+          # default-404 for deep-linked docs URLs.
+          cat > site/404.html <<'HTML'
+          <!DOCTYPE html><meta charset="utf-8">
+          <title>Not Found — banking-cdc-warehouse docs</title>
+          <meta http-equiv="refresh" content="0; url=./index.html">
+          <p>Redirecting to <a href="./index.html">the docs home</a>…</p>
+          HTML
+
+      - name: upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

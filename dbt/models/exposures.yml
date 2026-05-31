@@ -1,0 +1,108 @@
+version: 2
+
+# Phase 12 — exposures. These are NOT dbt-managed; they're declarations
+# of the downstream consumers that depend on the marts, so lineage docs,
+# `dbt build --select +exposure:*`, and change-impact review have a
+# machine-readable source of truth.
+#
+# A good exposure declaration includes:
+#   - who owns it (name + email) — the person a breaking change pings
+#   - type (dashboard / ml / application / notebook / analysis) — governs
+#     the icon + grouping in the hosted docs
+#   - maturity (high / medium / low) — hint for the reader scanning the
+#     docs: "high" means production-critical, break-and-page
+#   - a `depends_on` list — the ref("…") expressions mark which models
+#     this consumer reads
+#
+# A dbt build triggered with `--select +exposure:finance_executive_dashboard`
+# will build the dashboard's model closure (dependencies + the models
+# themselves), making targeted "rebuild for consumer X" workflows a
+# one-liner.
+
+exposures:
+
+  - name: finance_executive_dashboard
+    label: "Finance — Executive Monthly Revenue"
+    type: dashboard
+    maturity: high
+    url: https://bi.banking.example/dashboards/finance-executive
+    description: |
+      Monthly revenue + revenue-per-transaction trend by customer.
+      Primary audience: CFO, Head of Retail, finance BPs. Refreshes
+      daily at 06:00 UTC via scheduled dashboard task.
+    depends_on:
+      - ref('agg_monthly_customer_revenue')
+      - ref('dim_customer')
+      - metric('bank_revenue_usd')
+      - metric('revenue_per_transaction_usd')
+    owner:
+      name: Finance Analytics
+      email: finance-analytics@banking.example
+
+  - name: marketing_cohort_builder
+    label: "Marketing — Cohort Builder"
+    type: application
+    maturity: medium
+    url: https://marketing.banking.example/cohorts
+    description: |
+      Marketing's self-serve cohort tool. Reads the always-masked
+      consumer view so the surface never exposes raw PII — the mask
+      macros from Phase 8 are the contract. Age-cohort + KYC-status
+      filters only.
+    depends_on:
+      - ref('vw_customer_marketing')
+    owner:
+      name: Marketing Technology
+      email: marketing-tech@banking.example
+
+  - name: regulatory_quarterly_reporting
+    label: "Regulatory — Quarterly Transaction Reporting"
+    type: application
+    maturity: high
+    url: https://regulatory.banking.example/reports/quarterly
+    description: |
+      Quarterly transaction + card-event feed consumed by the
+      regulatory reporting pipeline. SLA: must be complete + reconciled
+      by T+5 business days of quarter close. A failed recon fires
+      BLOCKER-level alerts.
+    depends_on:
+      - ref('fct_transactions')
+      - ref('fct_card_events')
+      - ref('dim_account_scd2')
+      - ref('recon_transaction_amounts')
+    owner:
+      name: Regulatory Reporting
+      email: reg-reporting@banking.example
+
+  - name: data_quality_dashboard
+    label: "Data Platform — Quality & Reconciliation"
+    type: dashboard
+    maturity: high
+    url: https://bi.banking.example/dashboards/data-quality
+    description: |
+      Platform-team dashboard tracking the Phase 9 cross-layer
+      reconciliation signal (stg ↔ fct ↔ agg posted-sum parity) + the
+      daily `has_discrepancy` flag. On-call pager hooks into this view.
+    depends_on:
+      - ref('recon_transaction_amounts')
+    owner:
+      name: Data Platform On-Call
+      email: platform-oncall@banking.example
+
+  - name: ml_fraud_scoring
+    label: "ML — Card Fraud Scoring (training feed)"
+    type: ml
+    maturity: medium
+    description: |
+      Nightly feature-engineering job that joins card events to
+      transaction-level signals for the fraud scorer. Owned by the
+      ML platform; this exposure is their contract with the data
+      platform. A schema change to either fct must notify the ML team
+      lead before merging.
+    depends_on:
+      - ref('fct_card_events')
+      - ref('fct_transactions')
+      - ref('dim_customer_scd2')
+    owner:
+      name: ML Platform
+      email: ml-platform@banking.example

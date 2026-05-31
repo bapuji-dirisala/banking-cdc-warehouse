@@ -106,3 +106,22 @@ jobs:
           name: dbt-manifest-main
           path: dbt/target/manifest.json
           retention-days: 14
+
+      # Phase 12 — publish a per-model row-count baseline alongside the
+      # manifest so PR-lineage can show a signed Δ column instead of
+      # "n/a". Script is dependency-light (duckdb + stdlib).
+      - name: compute rowcount baseline (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          python scripts/rowcount-baseline.py \
+              --duckdb-path warehouse/banking.duckdb \
+              --manifest    dbt/target/manifest.json \
+              --output      rowcount-baseline.json
+
+      - name: upload rowcount baseline (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rowcount-baseline-main
+          path: rowcount-baseline.json
+          retention-days: 14
