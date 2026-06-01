@@ -59,49 +59,13 @@ jobs:
           # the pre-rendered index.html into target/.
           dbt docs generate --profiles-dir . --target dev
 
-      # The default dbt docs structure separates index.html from the
-      # per-manifest payload. Collapse them into a single-file site that
-      # GitHub Pages can serve statically. dbt's docs runner expects
-      # fetch of manifest.json / catalog.json; inlining avoids that.
-      - name: inline manifest + catalog into index.html
-        working-directory: dbt/target
-        run: |
-          python <<'PY'
-          import json, re
-          from pathlib import Path
-
-          here = Path(".")
-          index = here / "index.html"
-          manifest = json.loads((here / "manifest.json").read_text())
-          catalog  = json.loads((here / "catalog.json").read_text())
-
-          # dbt docs loads the two JSONs at runtime; inlining is a well-
-          # known trick to make the docs site a single-file deployable.
-          html = index.read_text()
-          injection = (
-              "<script>"
-              f"window.__INITIAL_MANIFEST__ = {json.dumps(manifest)};"
-              f"window.__INITIAL_CATALOG__  = {json.dumps(catalog)};"
-              "</script>"
-          )
-          # Hook the injection just before </head> so the docs app has
-          # the globals before its own init runs.
-          html = re.sub(r"</head>", injection + "</head>", html, count=1)
-          index.write_text(html)
-          PY
-
-      - name: assemble site/ (just index.html — the inlined single-file build)
-        run: |
-          mkdir -p site
-          cp dbt/target/index.html site/index.html
-          # 404 that redirects back to index — avoids the GH Pages
-          # default-404 for deep-linked docs URLs.
-          cat > site/404.html <<'HTML'
-          <!DOCTYPE html><meta charset="utf-8">
-          <title>Not Found — banking-cdc-warehouse docs</title>
-          <meta http-equiv="refresh" content="0; url=./index.html">
-          <p>Redirecting to <a href="./index.html">the docs home</a>…</p>
-          HTML
+      # dbt's docs runner expects to fetch manifest.json + catalog.json
+      # at page load. Inlining them into index.html makes the site a
+      # single-file static deployable — no CORS fiddling, survives
+      # strict CSP browsers. Logic lives in a reviewable script so
+      # linters catch bugs; the workflow is just the invocation.
+      - name: assemble single-file docs site/
+        run: python scripts/dbt-docs-inline.py --target dbt/target --out site
 
       - name: upload Pages artifact
         uses: actions/upload-pages-artifact@v3
