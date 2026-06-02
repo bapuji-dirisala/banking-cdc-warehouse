@@ -106,13 +106,18 @@ model-rename PRs that genuinely don't change counts.
    makes the site survive a `fetch()` failure on strict CSP browsers.
 4. Deploys to GitHub Pages via `actions/deploy-pages@v4`.
 
-**One-time repo setup** (not automatable from a workflow):
-```
-Settings → Pages → Build and deployment → Source: GitHub Actions
+**One-time repo setup.** The UI path is
+`Settings → Pages → Build and deployment → Source: GitHub Actions`, but
+the REST API is the reviewable + reproducible path:
+
+```bash
+gh api --method POST repos/<owner>/<repo>/pages -f build_type=workflow
 ```
 
 After that flip, the next push to main publishes to
-`https://<owner>.github.io/<repo>/`.
+`https://<owner>.github.io/<repo>/`. For this repo the one-liner was
+run against `bapuji-dirisala/banking-cdc-warehouse`; the live site is
+<https://bapuji-dirisala.github.io/banking-cdc-warehouse/>.
 
 ## Trade-offs documented
 
